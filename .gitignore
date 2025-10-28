@@ -49,8 +49,17 @@ celerybeat-schedule.bak
 
 # Project specific
 deriv_data/
+
+# Scripts de Windows (desarrollo local)
 *.bat
 comandos*.txt
+
+# Base de datos de desarrollo
+db.sqlite3
+*.db
+
+# Celery
+celerybeat-schedule.*
 
 # Sensible data
 .env
