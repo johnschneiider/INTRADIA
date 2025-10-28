@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>INTRADIA - Dashboard de Trading</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+        .metric-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        .status-active { color: #28a745; }
+        .status-won { color: #007bff; }
+        .status-lost { color: #dc3545; }
+        .status-pending { color: #ffc107; }
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .trade-row {
+            border-left: 4px solid;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .trade-row.won { border-left-color: #28a745; }
+        .trade-row.lost { border-left-color: #dc3545; }
+        .trade-row.active { border-left-color: #007bff; }
+        .trade-row.pending { border-left-color: #ffc107; }
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+        .refresh-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand">
+                <i class="fas fa-chart-line"></i> INTRADIA Dashboard
+            </span>
+            <div class="navbar-nav flex-row">
+                <span class="nav-item nav-link" id="last-update">
+                    <i class="fas fa-clock"></i> Última actualización: <span id="update-time">--</span>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Métricas Principales -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="total-pnl">$0.00</div>
+                    <div class="metric-label">P&L Total</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="win-rate">0%</div>
+                    <div class="metric-label">Tasa de Acierto</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="active-trades">0</div>
+                    <div class="metric-label">Operaciones Activas</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="total-trades">0</div>
+                    <div class="metric-label">Total Operaciones</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Gráfico de Precios -->
+            <div class="col-md-8">
+                <div class="chart-container">
+                    <h5><i class="fas fa-chart-area"></i> Precios y Zonas de Liquidez</h5>
+                    <canvas id="priceChart" height="400"></canvas>
+                </div>
+            </div>
+
+            <!-- Operaciones Recientes -->
+            <div class="col-md-4">
+                <div class="chart-container">
+                    <h5><i class="fas fa-list"></i> Operaciones Recientes</h5>
+                    <div id="recent-trades">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-spinner fa-spin"></i> Cargando...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Backtesting -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-history"></i> Backtesting</h5>
+                    <form id="backtest-form">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Símbolo</label>
+                                <select class="form-select" id="symbol-select">
+                                    <option value="EURUSD">EURUSD</option>
+                                    <option value="GBPUSD">GBPUSD</option>
+                                    <option value="USDJPY">USDJPY</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Período (días)</label>
+                                <input type="number" class="form-control" id="period-days" value="30" min="1" max="365">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-play"></i> Ejecutar Backtest
+                        </button>
+                    </form>
+                    <div id="backtest-results" class="mt-3" style="display: none;">
+                        <h6>Resultados del Backtest:</h6>
+                        <div id="backtest-stats"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Estadísticas Detalladas -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-chart-pie"></i> Distribución de Resultados</h5>
+                    <canvas id="resultsChart" height="300"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historial Completo -->
+        <div class="row">
+            <div class="col-12">
+                <div class="chart-container">
+                    <h5><i class="fas fa-table"></i> Historial Completo de Operaciones</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Símbolo</th>
+                                    <th>Tipo</th>
+                                    <th>Entrada</th>
+                                    <th>Stop</th>
+                                    <th>Take Profit</th>
+                                    <th>Resultado</th>
+                                    <th>P&L</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-table">
+                                <tr>
+                                    <td colspan="9" class="text-center text-muted">
+                                        <i class="fas fa-spinner fa-spin"></i> Cargando operaciones...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Botón de Actualización -->
+    <button class="btn btn-primary refresh-btn" onclick="refreshData()">
+        <i class="fas fa-sync-alt"></i>
+    </button>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let priceChart, resultsChart;
+        let refreshInterval, fullRefreshInterval;
+
+        // Inicializar gráficos
+        function initCharts() {
+            // Gráfico de precios
+            const priceCtx = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(priceCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Precio',
+                        data: [],
+                        borderColor: '#007bff',
+                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                        tension: 0.1
+                    }, {
+                        label: 'Zona Superior',
+                        data: [],
+                        borderColor: '#dc3545',
+                        borderDash: [5, 5],
+                        fill: false
+                    }, {
+                        label: 'Zona Inferior',
+                        data: [],
+                        borderColor: '#28a745',
+                        borderDash: [5, 5],
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: false
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+
+            // Gráfico de resultados
+            const resultsCtx = document.getElementById('resultsChart').getContext('2d');
+            resultsChart = new Chart(resultsCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Ganadas', 'Perdidas', 'Activas'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#28a745', '#dc3545', '#007bff']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Cargar datos del dashboard
+        async function loadDashboardData() {
+            try {
+                // Cargar métricas
+                const metricsResponse = await fetch('/engine/metrics');
+                const metrics = await metricsResponse.json();
+                
+                document.getElementById('total-pnl').textContent = `$${metrics.pnl.toFixed(2)}`;
+                document.getElementById('win-rate').textContent = `${(metrics.winrate * 100).toFixed(1)}%`;
+                document.getElementById('active-trades').textContent = metrics.active_trades || 0;
+                document.getElementById('total-trades').textContent = metrics.total_trades || 0;
+
+                // Cargar operaciones recientes
+                await loadRecentTrades();
+                
+                // Cargar historial completo
+                await loadTradesHistory();
+                
+                // Actualizar timestamp
+                document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Error cargando datos:', error);
+            }
+        }
+
+        // Cargar operaciones recientes
+        async function loadRecentTrades() {
+            try {
+                const response = await fetch('/engine/orders');
+                const orders = await response.json();
+                
+                const recentTradesDiv = document.getElementById('recent-trades');
+                recentTradesDiv.innerHTML = '';
+                
+                if (orders.length === 0) {
+                    recentTradesDiv.innerHTML = '<div class="text-center text-muted">No hay operaciones recientes</div>';
+                    return;
+                }
+                
+                orders.slice(0, 5).forEach(order => {
+                    const statusClass = getStatusClass(order.status);
+                    const pnlClass = order.pnl >= 0 ? 'text-success' : 'text-danger';
+                    
+                    recentTradesDiv.innerHTML += `
+                        <div class="trade-row ${statusClass}">
+                            <div class="d-flex justify-content-between">
+                                <strong>${order.symbol}</strong>
+                                <span class="badge bg-${getStatusColor(order.status)}">${order.status}</span>
+                            </div>
+                            <div class="small text-muted">
+                                Entrada: ${order.entry_price || 'N/A'} | 
+                                P&L: <span class="${pnlClass}">$${order.pnl || 0}</span>
+                            </div>
+                            <div class="small text-muted">
+                                ${new Date(order.timestamp).toLocaleString()}
+                            </div>
+                        </div>
+                    `;
+                });
+                
+            } catch (error) {
+                console.error('Error cargando operaciones recientes:', error);
+            }
+        }
+
+        // Cargar historial completo
+        async function loadTradesHistory() {
+            try {
+                const response = await fetch('/engine/orders');
+                const orders = await response.json();
+                
+                const tableBody = document.getElementById('trades-table');
+                tableBody.innerHTML = '';
+                
+                if (orders.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No hay operaciones registradas</td></tr>';
+                    return;
+                }
+                
+                orders.forEach(order => {
+                    const pnlClass = order.pnl >= 0 ? 'text-success' : 'text-danger';
+                    const pnlText = order.pnl ? `$${order.pnl.toFixed(2)}` : 'N/A';
+                    
+                    tableBody.innerHTML += `
+                        <tr>
+                            <td>${new Date(order.timestamp).toLocaleString()}</td>
+                            <td>${order.symbol}</td>
+                            <td>${order.action || 'N/A'}</td>
+                            <td>${order.entry_price || 'N/A'}</td>
+                            <td>${order.stop_loss || 'N/A'}</td>
+                            <td>${order.take_profit || 'N/A'}</td>
+                            <td>${order.exit_price || 'N/A'}</td>
+                            <td class="${pnlClass}">${pnlText}</td>
+                            <td><span class="badge bg-${getStatusColor(order.status)}">${order.status}</span></td>
+                        </tr>
+                    `;
+                });
+                
+                // Actualizar gráfico de resultados
+                updateResultsChart(orders);
+                
+            } catch (error) {
+                console.error('Error cargando historial:', error);
+            }
+        }
+
+        // Actualizar gráfico de resultados
+        function updateResultsChart(orders) {
+            const won = orders.filter(o => o.status === 'won').length;
+            const lost = orders.filter(o => o.status === 'lost').length;
+            const active = orders.filter(o => o.status === 'active').length;
+            
+            resultsChart.data.datasets[0].data = [won, lost, active];
+            resultsChart.update();
+        }
+
+        // Ejecutar backtest
+        document.getElementById('backtest-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const symbol = document.getElementById('symbol-select').value;
+            const period = document.getElementById('period-days').value;
+            
+            try {
+                const response = await fetch('/engine/backtest/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        period_days: parseInt(period)
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Mostrar resultados
+                document.getElementById('backtest-results').style.display = 'block';
+                document.getElementById('backtest-stats').innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Operaciones Totales:</strong> ${result.total_trades || 0}<br>
+                            <strong>Ganadas:</strong> ${result.won_trades || 0}<br>
+                            <strong>Perdidas:</strong> ${result.lost_trades || 0}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Tasa de Acierto:</strong> ${((result.win_rate || 0) * 100).toFixed(1)}%<br>
+                            <strong>P&L Total:</strong> $${(result.total_pnl || 0).toFixed(2)}<br>
+                            <strong>Drawdown:</strong> ${(result.max_drawdown || 0).toFixed(2)}%
+                        </div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('Error ejecutando backtest:', error);
+                alert('Error ejecutando backtest');
+            }
+        });
+
+        // Funciones auxiliares
+        function getStatusClass(status) {
+            switch(status) {
+                case 'won': return 'won';
+                case 'lost': return 'lost';
+                case 'active': return 'active';
+                default: return 'pending';
+            }
+        }
+
+        function getStatusColor(status) {
+            switch(status) {
+                case 'won': return 'success';
+                case 'lost': return 'danger';
+                case 'active': return 'primary';
+                default: return 'warning';
+            }
+        }
+
+        // Actualizar datos sin recargar página
+        function refreshData() {
+            loadDashboardData();
+        }
+
+        // Actualizar solo métricas (más rápido)
+        async function updateMetricsOnly() {
+            try {
+                const response = await fetch('/engine/metrics/');
+                const metrics = await response.json();
+                
+                // Actualizar solo los valores, no recargar todo
+                document.getElementById('total-pnl').textContent = `$${metrics.pnl.toFixed(2)}`;
+                document.getElementById('win-rate').textContent = `${(metrics.winrate * 100).toFixed(1)}%`;
+                document.getElementById('active-trades').textContent = metrics.active_trades || 0;
+                document.getElementById('total-trades').textContent = metrics.total_trades || 0;
+                
+                // Actualizar timestamp
+                document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Error actualizando métricas:', error);
+            }
+        }
+
+        // Inicializar
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            loadDashboardData();
+            
+            // Actualizar métricas cada 10 segundos (sin recargar)
+            refreshInterval = setInterval(updateMetricsOnly, 10000);
+            
+            // Actualizar datos completos cada 2 minutos
+            fullRefreshInterval = setInterval(loadDashboardData, 120000);
+        });
+
+        // Limpiar intervalos al cerrar
+        window.addEventListener('beforeunload', function() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+            if (fullRefreshInterval) {
+                clearInterval(fullRefreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

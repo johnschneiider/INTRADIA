@@ -1,0 +1,67 @@
+=========================================
+   INTRADIA - Inicio Rápido Sin Docker
+=========================================
+
+✅ CAMBIOS REALIZADOS:
+   - Dockerfile ELIMINADO
+   - docker-compose.yml ELIMINADO
+   - Configuración SQLite para base de datos
+   - Configuración SQLite para Celery (sin Redis)
+   - Scripts de inicio creados para Windows
+
+🚀 PARA INICIAR EL SISTEMA:
+
+1. Activar entorno virtual:
+   .venv\Scripts\activate
+
+2. Aplicar migraciones (primera vez):
+   python manage.py migrate
+
+3. Crear datos de ejemplo:
+   python manage.py create_dashboard_data
+
+4. INICIAR SERVIDORES (en 4 terminales separadas):
+
+   Terminal 1 - Django:
+   start_django.bat
+   
+   Terminal 2 - Celery Worker:
+   start_celery_worker.bat
+   
+   Terminal 3 - Celery Beat:
+   start_celery_beat.bat
+   
+   Terminal 4 - Ticks en Tiempo Real (opcional):
+   start_realtime_ticks.bat
+
+=========================================
+   O manualmente:
+=========================================
+
+Terminal 1:
+   python manage.py runserver
+
+Terminal 2:
+   python -m celery -A config worker -l info
+
+Terminal 3:
+   python -m celery -A config beat -l info
+
+Terminal 4:
+   python scripts/start_realtime_ticks.py
+
+=========================================
+   ACCESO AL DASHBOARD:
+=========================================
+   http://localhost:8000/engine/
+
+=========================================
+   ENDPOINTS DISPONIBLES:
+=========================================
+   http://localhost:8000/api/status
+   http://localhost:8000/engine/metrics/
+   http://localhost:8000/engine/candles/
+   http://localhost:8000/engine/ticks/realtime/
+
+=========================================
+

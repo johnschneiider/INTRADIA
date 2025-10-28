@@ -1,0 +1,24 @@
+# Servicio systemd para INTRADIA
+# Guardar en: /etc/systemd/system/intradia.service
+
+[Unit]
+Description=INTRADIA Trading System
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/intradia
+Environment="PATH=/var/www/intradia/venv/bin"
+ExecStart=/var/www/intradia/venv/bin/gunicorn \
+    --config /var/www/intradia/gunicorn_config.py \
+    --pid /var/run/intradia.pid \
+    config.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+

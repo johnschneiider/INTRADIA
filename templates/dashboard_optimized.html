@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>INTRADIA - Dashboard de Trading</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+        }
+        .metric-card:hover {
+            transform: translateY(-2px);
+        }
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            transition: color 0.3s ease;
+        }
+        .metric-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        .status-active { color: #28a745; }
+        .status-won { color: #007bff; }
+        .status-lost { color: #dc3545; }
+        .status-pending { color: #ffc107; }
+        .chart-container {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        .chart-container canvas {
+            max-width: 100% !important;
+            height: auto !important;
+        }
+        
+        .chart-container h5 {
+            margin-bottom: 15px;
+            color: #333;
+            font-weight: 600;
+        }
+        .trade-row {
+            border-left: 4px solid;
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+        }
+        .trade-row:hover {
+            transform: translateX(5px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .trade-row.won { border-left-color: #28a745; }
+        .trade-row.lost { border-left-color: #dc3545; }
+        .trade-row.active { border-left-color: #007bff; }
+        .trade-row.pending { border-left-color: #ffc107; }
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.5rem;
+        }
+        .refresh-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            transition: transform 0.3s ease;
+        }
+        .refresh-btn:hover {
+            transform: rotate(180deg);
+        }
+        .update-indicator {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .update-indicator.show {
+            opacity: 1;
+        }
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .loading-spinner.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <!-- Indicador de actualización -->
+    <div class="update-indicator" id="update-indicator">
+        <i class="fas fa-sync-alt fa-spin"></i> Actualizando...
+    </div>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark bg-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand">
+                <i class="fas fa-chart-line"></i> INTRADIA Dashboard
+            </span>
+            <div class="navbar-nav flex-row">
+                <span class="nav-item nav-link" id="last-update">
+                    <i class="fas fa-clock"></i> Última actualización: <span id="update-time">--</span>
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4">
+        <!-- Métricas Principales -->
+        <div class="row">
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="total-pnl">$0.00</div>
+                    <div class="metric-label">P&L Total</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="win-rate">0%</div>
+                    <div class="metric-label">Tasa de Acierto</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="active-trades">0</div>
+                    <div class="metric-label">Operaciones Activas</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <div class="metric-value" id="total-trades">0</div>
+                    <div class="metric-label">Total Operaciones</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Gráfico de Precios -->
+            <div class="col-md-8">
+                <div class="chart-container">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5><i class="fas fa-chart-line"></i> Gráfico de Velas Japonesas</h5>
+                        <div class="d-flex gap-2 align-items-center">
+                            <!-- Selector de símbolo -->
+                            <select id="symbol-selector" class="form-select form-select-sm" style="width: auto;">
+                                <optgroup label="Forex (Datos Históricos)">
+                                    <option value="EURUSD">EURUSD</option>
+                                    <option value="GBPUSD">GBPUSD</option>
+                                </optgroup>
+                                <optgroup label="Deriv (Ticks en Tiempo Real)">
+                                    <option value="R_10">R_10</option>
+                                    <option value="R_25">R_25</option>
+                                    <option value="R_50">R_50</option>
+                                    <option value="CRASH1000">CRASH1000</option>
+                                    <option value="BOOM1000">BOOM1000</option>
+                                </optgroup>
+                            </select>
+                            
+                            <!-- Selector de timeframe -->
+                            <div class="btn-group" role="group">
+                                <input type="radio" class="btn-check" name="timeframe" id="tf-1m" value="1m" autocomplete="off">
+                                <label class="btn btn-outline-primary btn-sm" for="tf-1m">1m</label>
+                                
+                                <input type="radio" class="btn-check" name="timeframe" id="tf-5m" value="5m" autocomplete="off">
+                                <label class="btn btn-outline-primary btn-sm" for="tf-5m">5m</label>
+                                
+                                <input type="radio" class="btn-check" name="timeframe" id="tf-15m" value="15m" autocomplete="off">
+                                <label class="btn btn-outline-primary btn-sm" for="tf-15m">15m</label>
+                                
+                                <input type="radio" class="btn-check" name="timeframe" id="tf-1h" value="1h" autocomplete="off" checked>
+                                <label class="btn btn-outline-primary btn-sm" for="tf-1h">1h</label>
+                                
+                                <input type="radio" class="btn-check" name="timeframe" id="tf-4h" value="4h" autocomplete="off">
+                                <label class="btn btn-outline-primary btn-sm" for="tf-4h">4h</label>
+                                
+                                <input type="radio" class="btn-check" name="timeframe" id="tf-1d" value="1d" autocomplete="off">
+                                <label class="btn btn-outline-primary btn-sm" for="tf-1d">1d</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="position: relative; height: 500px; width: 100%;">
+                        <canvas id="priceChart" width="800" height="400"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Operaciones Recientes -->
+            <div class="col-md-4">
+                <div class="chart-container">
+                    <h5><i class="fas fa-list"></i> Operaciones Recientes</h5>
+                    <div class="loading-spinner" id="trades-loading">
+                        <i class="fas fa-spinner fa-spin"></i> Cargando...
+                    </div>
+                    <div id="recent-trades"></div>
+                    <div id="no-trades-message" class="text-center" style="display: none;">
+                        <div class="alert alert-info">
+                            <h6><i class="fas fa-info-circle"></i> Sin operaciones reales</h6>
+                            <p class="mb-1">No hay operaciones disponibles.</p>
+                            <small class="text-muted">Solo se muestran operaciones reales de la cuenta demo de Deriv.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Backtesting -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-history"></i> Backtesting</h5>
+                    <form id="backtest-form">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Símbolo</label>
+                                <select class="form-select" id="symbol-select">
+                                    <option value="EURUSD">EURUSD</option>
+                                    <option value="GBPUSD">GBPUSD</option>
+                                    <option value="USDJPY">USDJPY</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Período (días)</label>
+                                <input type="number" class="form-control" id="period-days" value="30" min="1" max="365">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-play"></i> Ejecutar Backtest
+                        </button>
+                    </form>
+                    <div id="backtest-results" class="mt-3" style="display: none;">
+                        <h6>Resultados del Backtest:</h6>
+                        <div id="backtest-stats"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Estadísticas Detalladas -->
+            <div class="col-md-6">
+                <div class="chart-container">
+                    <h5><i class="fas fa-chart-pie"></i> Distribución de Resultados</h5>
+                    <div style="position: relative; height: 300px; width: 100%;">
+                        <canvas id="resultsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historial Completo -->
+        <div class="row">
+            <div class="col-12">
+                <div class="chart-container">
+                    <h5><i class="fas fa-table"></i> Historial Completo de Operaciones</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Símbolo</th>
+                                    <th>Tipo</th>
+                                    <th>Entrada</th>
+                                    <th>Stop</th>
+                                    <th>Take Profit</th>
+                                    <th>Resultado</th>
+                                    <th>P&L</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trades-table">
+                                <tr>
+                                    <td colspan="9" class="text-center text-muted">
+                                        <i class="fas fa-spinner fa-spin"></i> Cargando operaciones...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Botón de Actualización -->
+    <button class="btn btn-primary refresh-btn" onclick="refreshData()">
+        <i class="fas fa-sync-alt"></i>
+    </button>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let priceChart, resultsChart;
+        let refreshInterval, fullRefreshInterval;
+        let lastDataHash = '';
+
+        // Mostrar indicador de actualización
+        function showUpdateIndicator() {
+            const indicator = document.getElementById('update-indicator');
+            indicator.classList.add('show');
+            setTimeout(() => {
+                indicator.classList.remove('show');
+            }, 2000);
+        }
+
+        // Variables globales para el gráfico
+        let currentTimeframe = '1h';  // Cambiar a 1h porque es lo que tenemos en la BD
+        let currentSymbol = 'EURUSD';
+        let realtimeTicks = [];
+        let maxTicks = 100;  // Máximo de ticks a mantener en memoria
+        
+        // Variables para Chart.js - Gráfico de líneas
+        let priceChart;
+        let chartData = [];
+        
+        // Inicializar gráficos Chart.js
+        function initCharts() {
+            const priceCtx = document.getElementById('priceChart').getContext('2d');
+            
+            priceChart = new Chart(priceCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Precio',
+                        data: [],
+                        borderColor: '#26a69a',
+                        backgroundColor: 'rgba(38, 166, 154, 0.1)',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0.1,
+                        pointBackgroundColor: '#ef5350',
+                        pointBorderColor: '#ffffff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                displayFormats: {
+                                    minute: 'HH:mm',
+                                    hour: 'HH:mm',
+                                    day: 'MMM dd'
+                                }
+                            },
+                            title: {
+                                display: true,
+                                text: 'Tiempo'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Precio'
+                            },
+                            beginAtZero: false
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `Precio: ${context.parsed.y.toFixed(5)}`;
+                                }
+                            }
+                        }
+                    },
+                    interaction: {
+                        mode: 'nearest',
+                        axis: 'x',
+                        intersect: false
+                    }
+                }
+            });
+            
+            console.log("✅ Chart.js inicializado para gráfico de líneas");
+        }
+
+        // Función para limpiar el canvas
+        function clearCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // Función para dibujar línea con marcadores
+        function drawLineChart() {
+            clearCanvas();
+            
+            if (chartData.length === 0) {
+                drawNoDataMessage();
+                return;
+            }
+            
+            // Calcular rango de precios
+            const prices = chartData.map(d => d.price);
+            const minPrice = Math.min(...prices);
+            const maxPrice = Math.max(...prices);
+            const priceRange = maxPrice - minPrice;
+            
+            // Calcular dimensiones del gráfico
+            const chartWidth = chartConfig.width - chartConfig.padding.left - chartConfig.padding.right;
+            const chartHeight = chartConfig.height - chartConfig.padding.top - chartConfig.padding.bottom;
+            
+            // Dibujar grid
+            drawGrid(chartWidth, chartHeight);
+            
+            // Dibujar línea principal
+            ctx.strokeStyle = chartConfig.colors.line;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            chartData.forEach((point, index) => {
+                const x = chartConfig.padding.left + (index * chartWidth / (chartData.length - 1));
+                const y = chartConfig.padding.top + chartHeight - ((point.price - minPrice) / priceRange * chartHeight);
+                
+                if (index === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
+            
+            ctx.stroke();
+            
+            // Dibujar marcadores
+            chartData.forEach((point, index) => {
+                const x = chartConfig.padding.left + (index * chartWidth / (chartData.length - 1));
+                const y = chartConfig.padding.top + chartHeight - ((point.price - minPrice) / priceRange * chartHeight);
+                
+                // Marcador circular
+                ctx.fillStyle = chartConfig.colors.marker;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, 2 * Math.PI);
+                ctx.fill();
+                
+                // Borde del marcador
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+            });
+            
+            // Dibujar ejes y título
+            drawAxes();
+            drawTitle();
+        }
+        
+        // Función para dibujar grid
+        function drawGrid(chartWidth, chartHeight) {
+            ctx.strokeStyle = chartConfig.colors.grid;
+            ctx.lineWidth = 1;
+            
+            // Líneas verticales
+            for (let i = 0; i <= 10; i++) {
+                const x = chartConfig.padding.left + (i * chartWidth / 10);
+                ctx.beginPath();
+                ctx.moveTo(x, chartConfig.padding.top);
+                ctx.lineTo(x, chartConfig.padding.top + chartHeight);
+                ctx.stroke();
+            }
+            
+            // Líneas horizontales
+            for (let i = 0; i <= 5; i++) {
+                const y = chartConfig.padding.top + (i * chartHeight / 5);
+                ctx.beginPath();
+                ctx.moveTo(chartConfig.padding.left, y);
+                ctx.lineTo(chartConfig.padding.left + chartWidth, y);
+                ctx.stroke();
+            }
+        }
+
+        // Función para convertir precio a coordenada Y
+        function priceToY(price) {
+            const chartHeight = chartConfig.height - chartConfig.padding.top - chartConfig.padding.bottom;
+            const priceRange = chartConfig.maxPrice - chartConfig.minPrice;
+            const normalizedPrice = (price - chartConfig.minPrice) / priceRange;
+            return chartConfig.height - chartConfig.padding.bottom - (normalizedPrice * chartHeight);
+        }
+
+        // Función para convertir coordenada Y a precio
+        function yToPrice(y) {
+            const chartHeight = chartConfig.height - chartConfig.padding.top - chartConfig.padding.bottom;
+            const normalizedY = (chartConfig.height - chartConfig.padding.bottom - y) / chartHeight;
+            return chartConfig.minPrice + (normalizedY * (chartConfig.maxPrice - chartConfig.minPrice));
+        }
+
+        // Función para calcular el rango de precios
+        function calculatePriceRange(data) {
+            if (data.length === 0) return;
+            
+            let minPrice = Infinity;
+            let maxPrice = -Infinity;
+            
+            data.forEach(candle => {
+                minPrice = Math.min(minPrice, candle.low);
+                maxPrice = Math.max(maxPrice, candle.high);
+            });
+            
+            // Agregar margen del 5%
+            const margin = (maxPrice - minPrice) * 0.05;
+            chartConfig.minPrice = minPrice - margin;
+            chartConfig.maxPrice = maxPrice + margin;
+        }
+
+        // Función para dibujar el gráfico completo
+        function drawChart() {
+            clearCanvas();
+            
+            if (chartData.length === 0) {
+                drawNoDataMessage();
+                return;
+            }
+            
+            // Calcular rango de precios
+            calculatePriceRange(chartData);
+            
+            // Calcular ancho de velas
+            const chartWidth = chartConfig.width - chartConfig.padding.left - chartConfig.padding.right;
+            const candlestickWidth = Math.max(2, Math.min(chartConfig.candlestickWidth, chartWidth / chartData.length / 2));
+            const spacing = chartWidth / chartData.length;
+            
+            // Dibujar velas
+            chartData.forEach((candle, index) => {
+                const x = chartConfig.padding.left + (index * spacing) + spacing/2;
+                drawCandlestick(x, candle.open, candle.high, candle.low, candle.close, candlestickWidth);
+            });
+            
+            // Dibujar ejes
+            drawAxes();
+            
+            // Dibujar título
+            drawTitle();
+        }
+
+        // Función para dibujar mensaje de sin datos
+        function drawNoDataMessage() {
+            ctx.fillStyle = '#666';
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Sin datos disponibles', canvas.width/2, canvas.height/2);
+        }
+
+        // Función para dibujar ejes
+        function drawAxes() {
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 1;
+            
+            // Eje Y (precios)
+            ctx.beginPath();
+            ctx.moveTo(chartConfig.padding.left, chartConfig.padding.top);
+            ctx.lineTo(chartConfig.padding.left, canvas.height - chartConfig.padding.bottom);
+            ctx.stroke();
+            
+            // Eje X (tiempo)
+            ctx.beginPath();
+            ctx.moveTo(chartConfig.padding.left, canvas.height - chartConfig.padding.bottom);
+            ctx.lineTo(canvas.width - chartConfig.padding.right, canvas.height - chartConfig.padding.bottom);
+            ctx.stroke();
+            
+            // Etiquetas de precio en el eje Y
+            const priceSteps = 5;
+            const priceStep = (chartConfig.maxPrice - chartConfig.minPrice) / priceSteps;
+            
+            ctx.fillStyle = '#333';
+            ctx.font = '10px Arial';
+            ctx.textAlign = 'right';
+            
+            for (let i = 0; i <= priceSteps; i++) {
+                const price = chartConfig.minPrice + (i * priceStep);
+                const y = priceToY(price);
+                ctx.fillText(price.toFixed(5), chartConfig.padding.left - 5, y + 3);
+            }
+        }
+
+        // Función para dibujar título
+        function drawTitle() {
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${currentSymbol} ${currentTimeframe} - Velas Japonesas (${chartData.length})`, canvas.width/2, 15);
+        }
+
+            // Gráfico de resultados con tamaño fijo
+            const resultsCtx = document.getElementById('resultsChart').getContext('2d');
+            resultsChart = new Chart(resultsCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Ganadas', 'Perdidas', 'Activas'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#28a745', '#dc3545', '#007bff'],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 20,
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: 'white',
+                            bodyColor: 'white',
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.parsed;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0;
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Función para cargar datos de velas japonesas
+        async function loadCandlestickData(symbol, timeframe) {
+            try {
+                const response = await fetch(`/engine/candles/?symbol=${symbol}&timeframe=${timeframe}&limit=100`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.candles || [];
+                }
+            } catch (error) {
+                console.error('Error cargando datos de velas:', error);
+            }
+            return [];
+        }
+        
+        // Función para cargar ticks en tiempo real
+        async function loadRealtimeTicks(symbol) {
+            try {
+                const response = await fetch(`/engine/ticks/realtime/?symbol=${symbol}&limit=50`);
+                if (response.ok) {
+                    const data = await response.json();
+                    return data.ticks || [];
+                }
+            } catch (error) {
+                console.error('Error cargando ticks:', error);
+            }
+            return [];
+        }
+
+        // Función para actualizar el gráfico de líneas con datos históricos
+        async function updateLineChart(symbol, timeframe) {
+            const candles = await loadCandlestickData(symbol, timeframe);
+            
+            if (candles.length === 0) {
+                console.log('No hay datos de velas disponibles');
+                priceChart.data.labels = [];
+                priceChart.data.datasets[0].data = [];
+                priceChart.update();
+                return;
+            }
+
+            // Convertir velas a datos para Chart.js
+            const labels = candles.map(candle => candle.timestamp);
+            const prices = candles.map(candle => parseFloat(candle.close));
+
+            // Actualizar el gráfico
+            priceChart.data.labels = labels;
+            priceChart.data.datasets[0].data = prices;
+            priceChart.update();
+            
+            console.log(`✅ Cargadas ${candles.length} velas para gráfico de líneas ${symbol} ${timeframe}`);
+        }
+
+        // Función para manejar cambio de timeframe
+        function handleTimeframeChange(timeframe) {
+            currentTimeframe = timeframe;
+            updateLineChart(currentSymbol, currentTimeframe);
+            showUpdateIndicator();
+        }
+
+        // Función para manejar cambio de símbolo
+        function handleSymbolChange(symbol) {
+            currentSymbol = symbol;
+            
+            // Determinar si es un símbolo de Deriv (ticks en tiempo real) o Forex (datos históricos)
+            const derivSymbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000'];
+            const isDerivSymbol = derivSymbols.includes(symbol);
+            
+            if (isDerivSymbol) {
+                // Para símbolos de Deriv, mostrar ticks en tiempo real
+                updateChartWithTicks();
+            } else {
+                // Para símbolos de Forex, mostrar datos históricos
+                updateLineChart(currentSymbol, currentTimeframe);
+            }
+            
+            showUpdateIndicator();
+        }
+
+        // Función para actualizar gráfico cuando cambian parámetros
+        function refreshChart() {
+            updateLineChart(currentSymbol, currentTimeframe);
+        }
+
+        // Función para agregar tick en tiempo real
+        function addRealtimeTick(tickData) {
+            realtimeTicks.push({
+                timestamp: new Date(tickData.timestamp),
+                price: parseFloat(tickData.price),
+                open: parseFloat(tickData.open || tickData.price),
+                high: parseFloat(tickData.high || tickData.price),
+                low: parseFloat(tickData.low || tickData.price),
+                close: parseFloat(tickData.close || tickData.price),
+                symbol: tickData.symbol,
+                volume: parseFloat(tickData.volume || 0)
+            });
+            
+            // Mantener solo los últimos ticks
+            if (realtimeTicks.length > maxTicks) {
+                realtimeTicks.shift();
+            }
+            
+            // Actualizar gráfico si es el símbolo actual
+            if (tickData.symbol === currentSymbol) {
+                updateChartWithTicks();
+            }
+        }
+
+        // Función para actualizar gráfico con ticks en tiempo real (convertidos a velas)
+        function updateChartWithTicks() {
+            if (realtimeTicks.length === 0) return;
+            
+            // Filtrar ticks del símbolo actual
+            const currentTicks = realtimeTicks.filter(tick => tick.symbol === currentSymbol);
+            
+            if (currentTicks.length === 0) return;
+            
+            // Convertir ticks a datos de velas japonesas para Canvas
+            chartData = currentTicks.map(tick => ({
+                timestamp: tick.timestamp,
+                open: tick.open,
+                high: tick.high,
+                low: tick.low,
+                close: tick.close,
+                volume: tick.volume || 0
+            }));
+            
+            // Dibujar el gráfico con Canvas
+            drawChart();
+            console.log(`✅ Actualizado gráfico con ${currentTicks.length} ticks en tiempo real`);
+        }
+
+        // Función para simular ticks (para testing)
+        function simulateRealtimeTicks() {
+            const symbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000'];
+            const basePrices = { 'R_10': 10.0, 'R_25': 25.0, 'R_50': 50.0, 'CRASH1000': 1000.0, 'BOOM1000': 1000.0 };
+            const lastPrices = {}; // Para mantener el último precio de cada símbolo
+            
+            setInterval(() => {
+                symbols.forEach(symbol => {
+                    const basePrice = basePrices[symbol];
+                    const lastPrice = lastPrices[symbol] || basePrice;
+                    
+                    // Generar movimiento de precio más realista
+                    const change = (Math.random() - 0.5) * 0.1; // Cambio de ±5%
+                    const newPrice = lastPrice + (lastPrice * change);
+                    
+                    // Simular OHLC para crear velas más realistas
+                    const open = lastPrice;
+                    const close = newPrice;
+                    const high = Math.max(open, close) + Math.random() * 0.02;
+                    const low = Math.min(open, close) - Math.random() * 0.02;
+                    
+                    lastPrices[symbol] = newPrice;
+                    
+                    addRealtimeTick({
+                        symbol: symbol,
+                        price: close.toFixed(2),
+                        open: open.toFixed(2),
+                        high: high.toFixed(2),
+                        low: low.toFixed(2),
+                        close: close.toFixed(2),
+                        timestamp: new Date().toISOString(),
+                        volume: Math.random() * 1000
+                    });
+                });
+            }, 2000); // Un tick cada 2 segundos por símbolo
+        }
+
+        // Agregar event listeners
+        document.addEventListener('DOMContentLoaded', function() {
+            // Event listeners para timeframe
+            document.querySelectorAll('input[name="timeframe"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    if (this.checked) {
+                        handleTimeframeChange(this.value);
+                    }
+                });
+            });
+
+            // Event listener para selector de símbolo
+            const symbolSelector = document.getElementById('symbol-selector');
+            if (symbolSelector) {
+                symbolSelector.addEventListener('change', function() {
+                    handleSymbolChange(this.value);
+                });
+            }
+
+            // Cargar datos iniciales
+            updateLineChart(currentSymbol, currentTimeframe);
+            
+            // Iniciar simulación de ticks en tiempo real
+            console.log("🚀 Iniciando simulación de ticks en tiempo real...");
+            simulateRealtimeTicks();
+        });
+
+        // Actualizar solo métricas (ultra rápido)
+        async function updateMetricsOnly() {
+            try {
+                showUpdateIndicator();
+                
+                const response = await fetch('/engine/metrics/');
+                const metrics = await response.json();
+                
+                // Actualizar solo los valores críticos
+                const pnlElement = document.getElementById('total-pnl');
+                const winRateElement = document.getElementById('win-rate');
+                const activeElement = document.getElementById('active-trades');
+                const totalElement = document.getElementById('total-trades');
+                
+                // Solo mostrar datos reales o valores en blanco
+                const pnlValue = metrics.total_trades > 0 ? `$${metrics.pnl.toFixed(2)}` : '$0.00';
+                const winRateValue = metrics.total_trades > 0 ? `${(metrics.winrate * 100).toFixed(1)}%` : '0.0%';
+                const activeValue = metrics.active_trades || 0;
+                const totalValue = metrics.total_trades || 0;
+                
+                // Solo actualizar si hay cambios
+                if (pnlElement.textContent !== pnlValue) {
+                    pnlElement.textContent = pnlValue;
+                    // Color solo si hay trades reales
+                    if (metrics.total_trades > 0) {
+                        pnlElement.style.color = metrics.pnl >= 0 ? '#28a745' : '#dc3545';
+                    } else {
+                        pnlElement.style.color = '#6c757d'; // Gris para datos vacíos
+                    }
+                }
+                
+                if (winRateElement.textContent !== winRateValue) {
+                    winRateElement.textContent = winRateValue;
+                }
+                
+                if (activeElement.textContent !== activeValue.toString()) {
+                    activeElement.textContent = activeValue;
+                }
+                
+                if (totalElement.textContent !== totalValue.toString()) {
+                    totalElement.textContent = totalValue;
+                }
+                
+                // Actualizar timestamp
+                document.getElementById('update-time').textContent = new Date().toLocaleTimeString();
+                
+            } catch (error) {
+                console.error('Error actualizando métricas:', error);
+            }
+        }
+
+        // Cargar datos del dashboard (solo cuando sea necesario)
+        async function loadDashboardData() {
+            try {
+                showUpdateIndicator();
+                
+                // Cargar métricas
+                await updateMetricsOnly();
+                
+                // Cargar operaciones recientes solo si es necesario
+                await loadRecentTrades();
+                
+                // Cargar historial completo solo si es necesario
+                await loadTradesHistory();
+                
+            } catch (error) {
+                console.error('Error cargando datos:', error);
+            }
+        }
+
+        // Cargar operaciones recientes (optimizado)
+        async function loadRecentTrades() {
+            try {
+                const response = await fetch('/engine/orders/');
+                const orders = await response.json();
+                
+                const recentTradesDiv = document.getElementById('recent-trades');
+                const loadingDiv = document.getElementById('trades-loading');
+                
+                // Ocultar spinner
+                loadingDiv.classList.remove('show');
+                
+                if (orders.length === 0) {
+                    recentTradesDiv.innerHTML = '';
+                    document.getElementById('no-trades-message').style.display = 'block';
+                    return;
+                }
+                
+                // Ocultar mensaje de no datos
+                document.getElementById('no-trades-message').style.display = 'none';
+                
+                // Generar hash de los datos para detectar cambios
+                const dataHash = JSON.stringify(orders.slice(0, 5));
+                
+                // Solo actualizar si hay cambios
+                if (dataHash !== lastDataHash) {
+                    lastDataHash = dataHash;
+                    
+                    let newContent = '';
+                    orders.slice(0, 5).forEach(order => {
+                        const statusClass = getStatusClass(order.status);
+                        const pnlClass = order.pnl >= 0 ? 'text-success' : 'text-danger';
+                        
+                        newContent += `
+                            <div class="trade-row ${statusClass}">
+                                <div class="d-flex justify-content-between">
+                                    <strong>${order.symbol}</strong>
+                                    <span class="badge bg-${getStatusColor(order.status)}">${order.status}</span>
+                                </div>
+                                <div class="small text-muted">
+                                    Entrada: ${order.entry_price || 'N/A'} | 
+                                    P&L: <span class="${pnlClass}">$${order.pnl || 0}</span>
+                                </div>
+                                <div class="small text-muted">
+                                    ${new Date(order.timestamp).toLocaleString()}
+                                </div>
+                            </div>
+                        `;
+                    });
+                    
+                    recentTradesDiv.innerHTML = newContent;
+                }
+                
+            } catch (error) {
+                console.error('Error cargando operaciones recientes:', error);
+            }
+        }
+
+        // Cargar historial completo (optimizado)
+        async function loadTradesHistory() {
+            try {
+                const response = await fetch('/engine/orders/');
+                const orders = await response.json();
+                
+                const tableBody = document.getElementById('trades-table');
+                
+                if (orders.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="9" class="text-center text-muted">No hay operaciones registradas</td></tr>';
+                    return;
+                }
+                
+                // Solo actualizar si hay cambios significativos
+                const currentRowCount = tableBody.children.length;
+                if (currentRowCount !== orders.length + 1) { // +1 por el mensaje de carga
+                    let newContent = '';
+                    orders.forEach(order => {
+                        const pnlClass = order.pnl >= 0 ? 'text-success' : 'text-danger';
+                        const pnlText = order.pnl ? `$${order.pnl.toFixed(2)}` : 'N/A';
+                        
+                        newContent += `
+                            <tr>
+                                <td>${new Date(order.timestamp).toLocaleString()}</td>
+                                <td>${order.symbol}</td>
+                                <td>${order.action || 'N/A'}</td>
+                                <td>${order.entry_price || 'N/A'}</td>
+                                <td>${order.stop_loss || 'N/A'}</td>
+                                <td>${order.take_profit || 'N/A'}</td>
+                                <td>${order.exit_price || 'N/A'}</td>
+                                <td class="${pnlClass}">${pnlText}</td>
+                                <td><span class="badge bg-${getStatusColor(order.status)}">${order.status}</span></td>
+                            </tr>
+                        `;
+                    });
+                    
+                    tableBody.innerHTML = newContent;
+                    
+                    // Actualizar gráfico de resultados
+                    updateResultsChart(orders);
+                    populatePriceChart(orders);
+                }
+                
+            } catch (error) {
+                console.error('Error cargando historial:', error);
+            }
+        }
+
+        // Actualizar gráfico de resultados
+        function updateResultsChart(orders) {
+            const won = orders.filter(o => o.status === 'won').length;
+            const lost = orders.filter(o => o.status === 'lost').length;
+            const active = orders.filter(o => o.status === 'active').length;
+            
+            resultsChart.data.datasets[0].data = [won, lost, active];
+            resultsChart.update();
+        }
+
+        // Función deshabilitada - ahora usamos velas japonesas
+        function populatePriceChart(orders) {
+            // Esta función ya no se usa - el gráfico de velas se actualiza automáticamente
+            // con los datos de la base de datos a través de updateCandlestickChart()
+            return;
+        }
+
+        // Ejecutar backtest
+        document.getElementById('backtest-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const symbol = document.getElementById('symbol-select').value;
+            const period = document.getElementById('period-days').value;
+            
+            try {
+                showUpdateIndicator();
+                
+                const response = await fetch('/engine/backtest/run/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        symbol: symbol,
+                        period_days: parseInt(period)
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Mostrar resultados
+                document.getElementById('backtest-results').style.display = 'block';
+                document.getElementById('backtest-stats').innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Operaciones Totales:</strong> ${result.total_trades || 0}<br>
+                            <strong>Ganadas:</strong> ${result.won_trades || 0}<br>
+                            <strong>Perdidas:</strong> ${result.lost_trades || 0}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Tasa de Acierto:</strong> ${((result.win_rate || 0) * 100).toFixed(1)}%<br>
+                            <strong>P&L Total:</strong> $${(result.total_pnl || 0).toFixed(2)}<br>
+                            <strong>Drawdown:</strong> ${(result.max_drawdown || 0).toFixed(2)}%
+                        </div>
+                    </div>
+                `;
+                
+            } catch (error) {
+                console.error('Error ejecutando backtest:', error);
+                alert('Error ejecutando backtest');
+            }
+        });
+
+        // Funciones auxiliares
+        function getStatusClass(status) {
+            switch(status) {
+                case 'won': return 'won';
+                case 'lost': return 'lost';
+                case 'active': return 'active';
+                default: return 'pending';
+            }
+        }
+
+        function getStatusColor(status) {
+            switch(status) {
+                case 'won': return 'success';
+                case 'lost': return 'danger';
+                case 'active': return 'primary';
+                default: return 'warning';
+            }
+        }
+
+        // Actualizar datos
+        function refreshData() {
+            loadDashboardData();
+        }
+
+        // Inicializar
+        document.addEventListener('DOMContentLoaded', function() {
+            initCharts();
+            loadDashboardData();
+            
+            // Actualizar métricas cada 5 segundos (ultra rápido)
+            refreshInterval = setInterval(updateMetricsOnly, 5000);
+            
+            // Actualizar datos completos cada 5 minutos
+            fullRefreshInterval = setInterval(loadDashboardData, 300000);
+        });
+
+        // Limpiar intervalos al cerrar
+        window.addEventListener('beforeunload', function() {
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+            }
+            if (fullRefreshInterval) {
+                clearInterval(fullRefreshInterval);
+            }
+        });
+    </script>
+</body>
+</html>

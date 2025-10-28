@@ -1,0 +1,20 @@
+# Temporary configuration for dynamic symbol processing
+# This will be merged into settings.py
+
+def get_active_symbols():
+    """Obtener símbolos activos dinámicamente"""
+    try:
+        from market.models import Tick
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        since = timezone.now() - timedelta(hours=24)
+        symbols = Tick.objects.filter(timestamp__gte=since).values_list('symbol', flat=True).distinct()
+        return list(symbols)
+    except:
+        # Fallback a símbolos por defecto
+        return ['R_10', 'R_25', 'R_50', 'BOOM1000', 'CRASH1000']
+
+# Llamar a esta función para obtener símbolos activos
+ACTIVE_SYMBOLS = get_active_symbols()
+

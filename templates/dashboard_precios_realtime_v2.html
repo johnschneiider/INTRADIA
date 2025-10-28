@@ -1,0 +1,687 @@
+<!-- VERSIÓN CON MÉTRICAS ACTUALIZADAS v4 -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+        <title>INTRADIA - Métricas Actualizadas (v4)</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .dashboard-header {
+            background: rgba(255,255,255,0.1);
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .metric-card {
+            background: rgba(255,255,255,0.15);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .price-card {
+            background: rgba(0,0,0,0.3);
+            border-radius: 10px;
+            padding: 15px;
+            margin: 10px 0;
+            border: 2px solid #28a745;
+            animation: flash 0.5s ease-in-out;
+        }
+        @keyframes flash {
+            0%, 100% { border-color: #28a745; }
+            50% { border-color: #ffc107; }
+        }
+        .symbol-selector {
+            background: rgba(255,255,255,0.2);
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .symbol-btn {
+            margin: 5px;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background: rgba(255,255,255,0.3);
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .symbol-btn:hover {
+            background: rgba(255,255,255,0.5);
+        }
+        .symbol-btn.active {
+            background: #28a745;
+            font-weight: bold;
+        }
+        .price-display {
+            font-size: 3rem;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+            text-align: center;
+            margin: 20px 0;
+            color: #ffc107;
+        }
+        .price-change {
+            font-size: 1.5rem;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .price-change.positive { color: #28a745; }
+        .price-change.negative { color: #dc3545; }
+        #connectionStatus {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            z-index: 1000;
+        }
+        #balanceStatus {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            background: #17a2b8;
+            z-index: 1000;
+        }
+        .connected { background: #28a745; }
+        .disconnected { background: #dc3545; }
+        /* Contenedores de operaciones con altura fija y scroll */
+        #activeOrdersContainer {
+            display: block !important;
+            height: 400px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+        }
+        #closedOrdersContainer {
+            display: block !important;
+            height: 400px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+        }
+        #activeOrdersContainer table, #closedOrdersContainer table {
+            width: 100% !important;
+            margin-bottom: 0 !important;
+            display: table !important;
+            table-layout: auto !important;
+        }
+        #activeOrdersContainer tbody, #closedOrdersContainer tbody {
+            display: table-row-group !important;
+        }
+        /* Tabla de ticks históricos */
+        #ticksHistoryContainer {
+            max-height: 400px !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+        }
+        #activeOrdersContainer::-webkit-scrollbar,
+        #closedOrdersContainer::-webkit-scrollbar {
+            width: 8px;
+        }
+        #activeOrdersContainer::-webkit-scrollbar-track,
+        #closedOrdersContainer::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+        }
+        #activeOrdersContainer::-webkit-scrollbar-thumb,
+        #closedOrdersContainer::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 10px;
+        }
+        #activeOrdersContainer::-webkit-scrollbar-thumb:hover,
+        #closedOrdersContainer::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.5);
+        }
+        /* Limitar ancho de las cards de operaciones */
+        .row .col-md-6 {
+            max-width: 600px !important;
+            margin: 0 auto !important;
+        }
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #fff;
+        }
+        .metric-label {
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        .order-card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-left: 4px solid;
+        }
+        .order-card.active { border-left-color: #28a745; }
+        .order-card.won { border-left-color: #007bff; }
+        .order-card.lost { border-left-color: #dc3545; }
+        .timer {
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #ffc107;
+        }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .status-badge {
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+        .badge-active { background: #28a745; }
+        .badge-won { background: #007bff; }
+        .badge-lost { background: #dc3545; }
+        .price {
+            font-size: 1.1rem;
+            font-weight: bold;
+            font-family: 'Courier New', monospace;
+        }
+        .pnl-positive { color: #28a745; }
+        .pnl-negative { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div id="connectionStatus" class="disconnected">
+        <i class="fas fa-circle"></i> Desconectado
+    </div>
+    
+    <div id="balanceStatus">
+        <i class="fas fa-dollar-sign"></i> Balance: <span id="balanceAmount">$0.00</span>
+    </div>
+
+    <div class="container-fluid mt-3">
+        <div class="dashboard-header">
+            <h1><i class="fas fa-chart-line"></i> INTRADIA - Trading en Tiempo Real</h1>
+            <p class="mb-0">Trading automático con actualizaciones instantáneas</p>
+        </div>
+
+        <!-- Selector de Instrumentos -->
+        <div class="symbol-selector">
+            <h4><i class="fas fa-exchange-alt"></i> Seleccionar Instrumento</h4>
+            <div id="symbolButtons">
+                <button class="symbol-btn active" onclick="selectSymbol('R_10'); return false;">R_10</button>
+                <button class="symbol-btn" onclick="selectSymbol('R_25'); return false;">R_25</button>
+                <button class="symbol-btn" onclick="selectSymbol('R_50'); return false;">R_50</button>
+                <button class="symbol-btn" onclick="selectSymbol('CRASH1000'); return false;">CRASH1000</button>
+                <button class="symbol-btn" onclick="selectSymbol('BOOM1000'); return false;">BOOM1000</button>
+                <button class="symbol-btn" onclick="selectSymbol('EURUSD'); return false;">EURUSD</button>
+                <button class="symbol-btn" onclick="selectSymbol('GBPUSD'); return false;">GBPUSD</button>
+                <button class="symbol-btn" onclick="selectSymbol('GOLD'); return false;">GOLD</button>
+            </div>
+        </div>
+
+        <!-- Precio en Tiempo Real -->
+        <div class="metric-card">
+            <h3><i class="fas fa-coins"></i> Precio en Tiempo Real</h3>
+            <div class="price-display" id="currentPrice">$0.00</div>
+            <div class="price-change" id="priceChange">
+                <span id="priceChangeValue">--</span>
+                <span id="priceChangePct">(0.00%)</span>
+            </div>
+            <div class="text-center text-muted" id="lastUpdate">
+                Última actualización: --
+            </div>
+        </div>
+
+        <!-- Métricas Principales -->
+        <div class="row" id="metricsRow">
+            <div class="col-md-3">
+                <div class="metric-card text-center">
+                    <div class="metric-label">P&L Total</div>
+                    <div class="metric-value" id="totalPnl">$0.00</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Win Rate</div>
+                    <div class="metric-value" id="winRate">0%</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Total Trades</div>
+                    <div class="metric-value" id="totalTrades">0</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Active Trades</div>
+                    <div class="metric-value pulse" id="activeTrades">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Operaciones Activas -->
+            <div class="col-md-6">
+                <div class="metric-card">
+                    <h3><i class="fas fa-play-circle"></i> Operaciones Activas</h3>
+                    <div id="activeOrdersContainer">
+                        <p class="text-center text-muted">Sin operaciones activas</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Operaciones Finalizadas -->
+            <div class="col-md-6">
+                <div class="metric-card">
+                    <h3><i class="fas fa-check-circle"></i> Operaciones Finalizadas</h3>
+                    <div id="closedOrdersContainer">
+                        <p class="text-center text-muted">Sin operaciones cerradas</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Histórico de Ticks en Tiempo Real -->
+        <div class="metric-card">
+            <h3><i class="fas fa-table"></i> Histórico de Precios (Últimos Ticks)</h3>
+            <div id="ticksHistoryContainer">
+                <table class="table table-dark table-striped">
+                    <thead>
+                        <tr>
+                            <th>Símbolo</th>
+                            <th>Precio</th>
+                            <th>Volumen</th>
+                            <th>Fecha/Hora</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ticksHistoryTable">
+                        <tr>
+                            <td colspan="4" class="text-center text-muted">Cargando datos...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variables globales
+        let selectedSymbol = 'R_10';
+        let lastPrice = null;
+        let ws = null;
+        let reconnectAttempts = 0;
+        
+        console.log('✅ Script cargado - VERSIÓN CON FIX DE TRADES');
+        
+        // Conectar WebSocket
+        function connect() {
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/trading/`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                console.log('WebSocket conectado');
+                document.getElementById('connectionStatus').className = 'connected';
+                document.getElementById('connectionStatus').innerHTML = '<i class="fas fa-circle"></i> Conectado';
+                reconnectAttempts = 0;
+                ws.send(JSON.stringify({type: 'request_update'}));
+            };
+            
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                if (data.type === 'trading_update') {
+                    updateDashboard(data.data);
+                    updatePrice(data.data);
+                }
+            };
+            
+            ws.onerror = function(error) {
+                console.error('Error WebSocket:', error);
+            };
+            
+            ws.onclose = function() {
+                console.log('WebSocket desconectado');
+                document.getElementById('connectionStatus').className = 'disconnected';
+                document.getElementById('connectionStatus').innerHTML = '<i class="fas fa-circle"></i> Desconectado';
+                reconnectAttempts++;
+                setTimeout(connect, Math.min(1000 * reconnectAttempts, 10000));
+            };
+        }
+        
+        // Seleccionar símbolo
+        function selectSymbol(symbol) {
+            selectedSymbol = symbol;
+            // Actualizar botones
+            document.querySelectorAll('.symbol-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            // Activar el botón correcto
+            document.querySelectorAll('.symbol-btn').forEach(btn => {
+                if (btn.textContent.trim() === symbol) {
+                    btn.classList.add('active');
+                }
+            });
+            fetchLatestPrice(symbol);
+            loadTicksHistory(symbol, 50);
+        }
+        
+        // Obtener último precio del símbolo
+        async function fetchLatestPrice(symbol) {
+            try {
+                console.log(`Fetching price for ${symbol}...`);
+                const response = await fetch(`/engine/ticks/realtime/?symbol=${symbol}&limit=1`);
+                const data = await response.json();
+                console.log('Received data:', data);
+                
+                if (data.ticks && data.ticks.length > 0) {
+                    const tick = data.ticks[0];
+                    console.log(`Updating price: ${tick.price}`);
+                    updatePriceDisplay(tick.price);
+                } else {
+                    console.log('No ticks found');
+                }
+            } catch (error) {
+                console.error('Error fetching price:', error);
+            }
+        }
+        
+        // Actualizar precio
+        function updatePriceDisplay(price) {
+            const priceElement = document.getElementById('currentPrice');
+            const priceChangeElement = document.getElementById('priceChangeValue');
+            const priceChangePctElement = document.getElementById('priceChangePct');
+            
+            if (lastPrice !== null) {
+                const change = price - lastPrice;
+                const changePct = (change / lastPrice) * 100;
+                
+                if (change > 0) {
+                    priceChangeElement.textContent = `+$${change.toFixed(4)}`;
+                    priceChangeElement.className = 'positive';
+                } else if (change < 0) {
+                    priceChangeElement.textContent = `$${change.toFixed(4)}`;
+                    priceChangeElement.className = 'negative';
+                } else {
+                    priceChangeElement.textContent = '$0.0000';
+                    priceChangeElement.className = '';
+                }
+                
+                priceChangePctElement.textContent = `(${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%)`;
+                
+                priceElement.style.animation = 'flash 0.5s';
+                setTimeout(() => priceElement.style.animation = '', 500);
+            }
+            
+            priceElement.textContent = `$${price.toFixed(4)}`;
+            lastPrice = price;
+            
+            // Actualizar timestamp
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = 
+                `Última actualización: ${now.toLocaleTimeString()}`;
+        }
+        
+        // Actualizar precio desde datos del WebSocket
+        function updatePrice(data) {
+            if (data.latest_ticks && data.latest_ticks[selectedSymbol]) {
+                const tick = data.latest_ticks[selectedSymbol];
+                updatePriceDisplay(tick.price);
+            }
+        }
+        
+        function updateDashboard(data) {
+            const { metrics, active_orders, recent_closed } = data;
+            
+            // Actualizar métricas
+            document.getElementById('totalPnl').textContent = 
+                '$' + metrics.total_pnl.toFixed(2);
+            // Mostrar win rate con más precisión
+            const winRateValue = metrics.win_rate.toFixed(2);
+            document.getElementById('winRate').textContent = winRateValue + '%';
+            document.getElementById('totalTrades').textContent = 
+                metrics.total_trades;
+            document.getElementById('activeTrades').textContent = 
+                metrics.active_trades;
+            
+            // Actualizar operaciones activas
+            const activeContainer = document.getElementById('activeOrdersContainer');
+            if (active_orders.length === 0) {
+                activeContainer.innerHTML = '<p class="text-center text-muted">Sin operaciones activas</p>';
+            } else {
+                activeContainer.innerHTML = active_orders.map(order => `
+                    <div class="order-card active">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${order.symbol}</strong> 
+                                <span class="badge badge-active">${order.action.toUpperCase()}</span>
+                            </div>
+                            <div class="timer" id="timer-${order.id}">${formatTime(order.elapsed_seconds)}</div>
+                        </div>
+                        <div class="mt-2">
+                            <small>Entry: $${order.entry_price.toFixed(2)} | 
+                            SL: $${order.stop_loss.toFixed(2)} | 
+                            TP: $${order.take_profit.toFixed(2)}</small>
+                        </div>
+                    </div>
+                `).join('');
+            }
+            
+            // Actualizar operaciones cerradas
+            const closedContainer = document.getElementById('closedOrdersContainer');
+            if (recent_closed.length === 0) {
+                closedContainer.innerHTML = '<p class="text-center text-muted">Sin operaciones cerradas</p>';
+            } else {
+                closedContainer.innerHTML = recent_closed.map(order => `
+                    <div class="order-card ${order.status}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${order.symbol}</strong> 
+                                <span class="status-badge badge-${order.status}">${order.status.toUpperCase()}</span>
+                            </div>
+                            <div class="price ${order.pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}">
+                                ${order.pnl >= 0 ? '+' : ''}$${order.pnl.toFixed(2)}
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <small>Entry: $${order.entry_price.toFixed(2)} → 
+                            Exit: $${order.exit_price.toFixed(2)}</small>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        function formatTime(seconds) {
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+        
+        // Actualizar timers cada segundo
+        setInterval(() => {
+            const timers = document.querySelectorAll('.timer');
+            timers.forEach(timer => {
+                const currentText = timer.textContent;
+                const parts = currentText.split(':');
+                let totalSeconds = parseInt(parts[0]) * 3600 + 
+                                 parseInt(parts[1]) * 60 + 
+                                 parseInt(parts[2]);
+                totalSeconds++;
+                timer.textContent = formatTime(totalSeconds);
+            });
+        }, 1000);
+        
+        // Polling para obtener últimos ticks cada 2 segundos
+        setInterval(() => {
+            if (selectedSymbol) {
+                fetchLatestPrice(selectedSymbol);
+            }
+        }, 2000);
+        
+        // Cargar histórico de ticks
+        async function loadTicksHistory(symbol, limit = 50) {
+            try {
+                const response = await fetch(`/engine/ticks/realtime/?symbol=${symbol}&limit=${limit}`);
+                const data = await response.json();
+                
+                const tbody = document.getElementById('ticksHistoryTable');
+                if (data.ticks && data.ticks.length > 0) {
+                    tbody.innerHTML = data.ticks.map(tick => `
+                        <tr>
+                            <td>${tick.symbol || symbol}</td>
+                            <td>$${parseFloat(tick.price).toFixed(4)}</td>
+                            <td>${parseFloat(tick.volume || 0).toFixed(2)}</td>
+                            <td>${new Date(tick.timestamp).toLocaleString()}</td>
+                        </tr>
+                    `).join('');
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No hay datos disponibles</td></tr>';
+                }
+            } catch (error) {
+                console.error('Error loading ticks history:', error);
+            }
+        }
+        
+        // Actualizar balance
+        async function updateBalance() {
+            try {
+                const response = await fetch('/engine/balance/');
+                const data = await response.json();
+                if (data.success) {
+                    const balanceElement = document.getElementById('balanceAmount');
+                    if (balanceElement) {
+                        balanceElement.textContent = '$' + parseFloat(data.balance).toFixed(2);
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching balance:', error);
+            }
+        }
+        
+        // Funciones de operaciones
+        async function updateTrades() {
+            try {
+                console.log('🔍 Consultando /engine/trades/...');
+                const response = await fetch('/engine/trades/');
+                const data = await response.json();
+                console.log('📊 Respuesta recibida:', data);
+                
+                if (data.success) {
+                    console.log(`✅ Operaciones activas: ${data.active.length}`);
+                    console.log(`✅ Operaciones completadas: ${data.completed.length}`);
+                    updateActiveTrades(data.active);
+                    updateCompletedTrades(data.completed);
+                    
+                    // ACTUALIZAR MÉTRICAS
+                    if (data.metrics) {
+                        updateMetrics(data.metrics);
+                    }
+                } else {
+                    console.error('❌ Error en respuesta:', data.error);
+                }
+            } catch (error) {
+                console.error('❌ Error fetching trades:', error);
+            }
+        }
+        
+        function updateActiveTrades(trades) {
+            const container = document.getElementById('activeOrdersContainer');
+            
+            if (trades.length === 0) {
+                container.innerHTML = '<p class="text-center text-muted">Sin operaciones activas</p>';
+                return;
+            }
+            
+            container.innerHTML = '<table class="table table-sm table-dark">' +
+                '<thead><tr><th>Símbolo</th><th>Tipo</th><th>Precio</th><th>Hora</th></tr></thead>' +
+                '<tbody>' +
+                trades.map(trade => `
+                    <tr>
+                        <td>${trade.symbol}</td>
+                        <td><span class="badge ${trade.direction === 'CALL' ? 'bg-success' : 'bg-danger'}">${trade.direction}</span></td>
+                        <td>$${trade.price.toFixed(4)}</td>
+                        <td>${new Date(trade.timestamp).toLocaleTimeString()}</td>
+                    </tr>
+                `).join('') +
+                '</tbody></table>';
+        }
+        
+        function updateCompletedTrades(trades) {
+            const container = document.getElementById('closedOrdersContainer');
+            
+            if (trades.length === 0) {
+                container.innerHTML = '<p class="text-center text-muted">Sin operaciones cerradas</p>';
+                return;
+            }
+            
+            container.innerHTML = '<table class="table table-sm table-dark">' +
+                '<thead><tr><th>Símbolo</th><th>Tipo</th><th>Precio</th><th>Estado</th><th>Hora</th></tr></thead>' +
+                '<tbody>' +
+                trades.map(trade => `
+                    <tr>
+                        <td>${trade.symbol}</td>
+                        <td><span class="badge ${trade.direction === 'CALL' ? 'bg-success' : 'bg-danger'}">${trade.direction}</span></td>
+                        <td>$${trade.price.toFixed(4)}</td>
+                        <td><span class="badge ${trade.status === 'won' ? 'bg-success' : trade.status === 'lost' ? 'bg-danger' : 'bg-warning'}">${trade.status}</span></td>
+                        <td>${new Date(trade.timestamp).toLocaleTimeString()}</td>
+                    </tr>
+                `).join('') +
+                '</tbody></table>';
+        }
+        
+        // Actualizar métricas
+        function updateMetrics(metrics) {
+            document.getElementById('totalPnl').textContent = '$' + metrics.total_pnl.toFixed(2);
+            document.getElementById('winRate').textContent = metrics.win_rate.toFixed(2) + '%';
+            document.getElementById('totalTrades').textContent = metrics.total_trades;
+            document.getElementById('activeTrades').textContent = metrics.active_trades;
+        }
+        
+        // Conectar al cargar
+        connect();
+        
+        // Cargar precio inicial e histórico
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, fetching initial price...');
+            fetchLatestPrice('R_10');
+            loadTicksHistory('R_10', 50);
+            updateBalance(); // Cargar balance inicial
+            updateTrades(); // Cargar operaciones inmediatamente
+            
+            // Actualizar balance cada 5 segundos
+            setInterval(updateBalance, 5000);
+            
+            // Consultar operaciones cada 2 segundos
+            setInterval(updateTrades, 2000);
+            
+            // También intentar después de 500ms por si el DOM ya estaba cargado
+            setTimeout(() => {
+                console.log('Timeout trigger, fetching price...');
+                fetchLatestPrice('R_10');
+                loadTicksHistory('R_10', 50);
+            }, 500);
+            
+            // Recargar histórico cada 30 segundos
+            setInterval(() => {
+                if (selectedSymbol) {
+                    loadTicksHistory(selectedSymbol, 50);
+                }
+            }, 30000);
+        });
+    </script>
+</body>
+</html>
