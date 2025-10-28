@@ -4,7 +4,8 @@ Configuración de Gunicorn para INTRADIA
 import multiprocessing
 
 # Dirección y puerto
-bind = "127.0.0.1:8000"
+# IMPORTANTE: Usar puerto 8001 para no interferir con proyecto existente en puerto 8000
+bind = "127.0.0.1:8001"
 backlog = 2048
 
 # Workers
