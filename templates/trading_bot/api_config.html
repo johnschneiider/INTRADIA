@@ -1,0 +1,147 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Configuración API Deriv - INTRADIA{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-lg-10 mx-auto">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="mb-0">
+                        <i class="fas fa-cog me-2"></i>
+                        Configuración de API Deriv
+                    </h3>
+                </div>
+                <div class="card-body p-4">
+                    {% if config %}
+                        <div class="alert alert-success d-flex align-items-center" role="alert">
+                            <i class="fas fa-check-circle me-3 fs-4"></i>
+                            <div>
+                                <strong>Configuración activa:</strong> El token de API ya está configurado y activo.
+                                {% if not config.is_demo %}
+                                    <br><span class="badge bg-danger mt-2">Cuenta REAL</span>
+                                {% else %}
+                                    <br><span class="badge bg-warning mt-2">Cuenta DEMO</span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- Información de configuración -->
+                        <div class="mb-4">
+                            <h5 class="mb-3">
+                                <i class="fas fa-info-circle me-2"></i>
+                                Información de Configuración
+                            </h5>
+                            
+                            <div class="row">
+                                <div class="col-md-12 mb-3">
+                                    <label class="form-label fw-bold">Token de API</label>
+                                    <div class="form-control-plaintext">
+                                        <code>{{ config.api_token|slice:":10" }}...{{ config.api_token|slice:"-5:" }}</code>
+                                    </div>
+                                    <small class="form-text text-muted">
+                                        Token configurado (mostrando solo primeros y últimos caracteres por seguridad)
+                                    </small>
+                                </div>
+
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label fw-bold">App ID</label>
+                                    <div class="form-control-plaintext">
+                                        {{ config.app_id|default:"1089" }}
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label fw-bold">Tipo de Cuenta</label>
+                                    <div class="form-control-plaintext">
+                                        {% if config.is_demo %}
+                                            <span class="badge bg-warning">DEMO</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">REAL</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label fw-bold">Estado</label>
+                                    <div class="form-control-plaintext">
+                                        {% if config.is_active %}
+                                            <span class="badge bg-success">Activa</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Inactiva</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Nota:</strong> Para cambiar la configuración, usa el script: 
+                            <code>python scripts/actualizar_token_real.py</code>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning d-flex align-items-center" role="alert">
+                            <i class="fas fa-exclamation-triangle me-3 fs-4"></i>
+                            <div>
+                                <strong>No hay configuración:</strong> No se encontró configuración de API activa.
+                                <br>Por favor, configura el token usando: <code>python scripts/actualizar_token_real.py</code>
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <!-- Botón de regreso -->
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end">
+                        <a href="{% url 'trading_bot:dashboard' %}" class="btn btn-primary">
+                            <i class="fas fa-arrow-left me-2"></i>Volver al Dashboard
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Información adicional -->
+            <div class="card mt-4 border-0 shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="fas fa-question-circle me-2"></i>
+                        ¿Cómo obtener tu token?
+                    </h5>
+                    <ol class="mb-3">
+                        <li>Inicia sesión en <a href="https://app.deriv.com/" target="_blank">app.deriv.com</a></li>
+                        <li>Ve a <strong>Settings</strong> → <strong>API Token</strong></li>
+                        <li>Haz clic en <strong>"Create new token"</strong></li>
+                        <li>Selecciona el tipo de cuenta (Demo o Real)</li>
+                        <li>Copia el token generado</li>
+                        <li>Pégalo en el campo de arriba</li>
+                    </ol>
+                    
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-lightbulb me-2"></i>
+                        <strong>Tip:</strong> Para trading automatizado asegúrate de que tu token tenga los permisos necesarios 
+                        (lectura, operaciones, información de trading) al crearlo en Deriv.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .border-purple {
+        border-color: #9333ea !important;
+        border-width: 2px !important;
+    }
+    .form-check-input:checked {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+    }
+    .card {
+        transition: transform 0.2s ease;
+    }
+    .card:hover {
+        transform: translateY(-2px);
+    }
+</style>
+{% endblock %}

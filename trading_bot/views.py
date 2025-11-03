@@ -11,6 +11,7 @@ import asyncio
 import threading
 
 from .models import TradingBot, Trade, TradingStrategy, DerivAPIConfig, BotLog
+from .forms import DerivAPIConfigForm
 from .deriv_service import DerivAPI, TradingEngine
 
 
@@ -256,20 +257,38 @@ def strategy_create(request):
 
 @login_required
 def api_config(request):
-    """Configurar la API de Deriv"""
-    config, created = DerivAPIConfig.objects.get_or_create(user=request.user)
+    """Mostrar configuración de la API de Deriv"""
+    # Obtener configuración usando raw SQL para evitar campos scope_* que no existen en BD
+    from django.db import connection
     
-    if request.method == 'POST':
-        config.api_token = request.POST.get('api_token')
-        config.app_id = request.POST.get('app_id', '1089')
-        config.is_demo = request.POST.get('is_demo') == 'on'
-        config.save()
-        
-        messages.success(request, 'Configuración de API guardada correctamente')
-        return redirect('trading_bot:dashboard')
+    config_data = None
+    
+    try:
+        with connection.cursor() as cursor:
+            # Obtener configuración usando raw SQL (solo campos que existen)
+            cursor.execute("""
+                SELECT id, api_token, app_id, is_demo, is_active 
+                FROM trading_bot_derivapiconfig 
+                WHERE is_active = 1
+                ORDER BY updated_at DESC
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            
+            if row:
+                config_data = {
+                    'id': row[0],
+                    'api_token': row[1] or '',
+                    'app_id': row[2] or '1089',
+                    'is_demo': bool(row[3]) if row[3] is not None else False,
+                    'is_active': bool(row[4]) if row[4] is not None else True,
+                }
+    except Exception as e:
+        print(f"⚠️ Error al obtener configuración: {e}")
+        config_data = None
     
     context = {
-        'config': config,
+        'config': config_data,
     }
     
     return render(request, 'trading_bot/api_config.html', context)

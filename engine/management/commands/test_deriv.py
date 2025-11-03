@@ -37,3 +37,9 @@ class Command(BaseCommand):
         self.stdout.write("\n🎯 Prueba completada")
 
 
+
+
+
+
+
+

@@ -723,7 +723,12 @@
             currentSymbol = symbol;
             
             // Determinar si es un símbolo de Deriv (ticks en tiempo real) o Forex (datos históricos)
-            const derivSymbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000'];
+            // TODOS los instrumentos ahora tienen ticks en tiempo real
+            const derivSymbols = [
+                'R_10', 'R_25', 'R_50', 'R_75', 'R_100', 'BOOM1000', 'CRASH1000', 'BOOM500', 'CRASH500',
+                'frxEURUSD', 'frxGBPUSD', 'frxUSDJPY', 'frxUSDCHF', 'frxAUDUSD', 'frxXAUUSD', 'frxXAGUSD',
+                'cryBTCUSD', 'cryETHUSD'
+            ];
             const isDerivSymbol = derivSymbols.includes(symbol);
             
             if (isDerivSymbol) {
@@ -792,8 +797,11 @@
 
         // Función para simular ticks (para testing)
         function simulateRealtimeTicks() {
-            const symbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000'];
-            const basePrices = { 'R_10': 10.0, 'R_25': 25.0, 'R_50': 50.0, 'CRASH1000': 1000.0, 'BOOM1000': 1000.0 };
+            const symbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000', 'frxEURUSD', 'frxGBPUSD', 'frxXAUUSD'];
+            const basePrices = { 
+                'R_10': 10.0, 'R_25': 25.0, 'R_50': 50.0, 'CRASH1000': 1000.0, 'BOOM1000': 1000.0,
+                'frxEURUSD': 1.15, 'frxGBPUSD': 1.31, 'frxXAUUSD': 4000.0
+            };
             const lastPrices = {}; // Para mantener el último precio de cada símbolo
             
             setInterval(() => {

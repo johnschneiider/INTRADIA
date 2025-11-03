@@ -144,9 +144,19 @@ class TradingConsumer(AsyncWebsocketConsumer):
             recent_closed = await self.get_recent_closed_orders()
             metrics = await self.get_metrics()
             
-            # Obtener últimos ticks de símbolos principales
+            # Obtener últimos ticks de símbolos principales - TODOS los instrumentos activos
+            symbols_to_check = [
+                # Forex
+                'frxEURUSD', 'frxGBPUSD', 'frxUSDJPY', 'frxUSDCHF', 'frxAUDUSD',
+                # Commodities
+                'frxXAUUSD', 'frxXAGUSD',
+                # Índices sintéticos
+                'R_10', 'R_25', 'R_50', 'BOOM1000', 'CRASH1000',
+                # Crypto
+                'cryBTCUSD', 'cryETHUSD',
+            ]
             latest_ticks = {}
-            for symbol in ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000', 'EURUSD', 'GBPUSD', 'GOLD']:
+            for symbol in symbols_to_check:
                 tick = await self.get_latest_tick(symbol)
                 if tick:
                     latest_ticks[symbol] = tick

@@ -22,8 +22,24 @@ def main():
     if tick_service.start():
         print("✅ Servicio de ticks iniciado correctamente")
         
-        # Suscribirse a símbolos de Deriv
-        symbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000']
+        # Suscribirse a símbolos de Deriv - TODOS los instrumentos activos
+        symbols = [
+            # Forex - Principales
+            'frxEURUSD', 'frxGBPUSD', 'frxUSDJPY', 'frxUSDCHF', 'frxAUDUSD', 'frxUSDCAD',
+            'frxNZDUSD', 'frxEURGBP', 'frxEURJPY', 'frxGBPJPY', 'frxAUDJPY', 'frxEURAUD',
+            # Commodities
+            'frxXAUUSD', 'frxXAGUSD', 'frxXPDUSD', 'frxXPTUSD',
+            # Índices sintéticos
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+            'BOOM1000', 'CRASH1000', 'BOOM500', 'CRASH500', 'BOOM600', 'CRASH600',
+            'RDBULL', 'RDBEAR',
+            # Cryptocurrencies
+            'cryBTCUSD', 'cryETHUSD',
+            # Jump indices
+            'JD10', 'JD25', 'JD50', 'JD75',
+            # Índices OTC
+            'OTC_N225', 'OTC_AS51',
+        ]
         
         for symbol in symbols:
             if tick_service.subscribe_to_symbol(symbol):
@@ -47,5 +63,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 

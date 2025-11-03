@@ -1,0 +1,986 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Gestión de Capital - INTRADIA{% endblock %}
+
+{% block extra_css %}
+<style>
+    .capital-config-container {
+        padding: 2rem 0;
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    
+    .config-card {
+        background: var(--dark-card);
+        border: 1px solid var(--dark-border);
+        border-radius: 20px;
+        padding: 2.5rem;
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .config-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+    }
+    
+    .config-header {
+        margin-bottom: 2rem;
+    }
+    
+    .config-header h2 {
+        font-size: 2rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        margin-top: 1rem;
+    }
+    
+    .status-badge.active {
+        background: linear-gradient(135deg, var(--success-color), #059669);
+        color: white;
+    }
+    
+    .status-badge.stopped {
+        background: linear-gradient(135deg, var(--danger-color), #dc2626);
+        color: white;
+    }
+    
+    .form-group {
+        margin-bottom: 1.5rem;
+    }
+    
+    .form-label {
+        color: var(--text-primary);
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+    
+    .form-label small {
+        color: var(--text-secondary);
+        font-weight: 400;
+        display: block;
+        margin-top: 0.25rem;
+    }
+    
+    .form-control {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--dark-border);
+        color: var(--text-primary);
+        padding: 0.75rem 1rem;
+        border-radius: 10px;
+        width: 100%;
+        transition: all 0.3s ease;
+    }
+    
+    .form-control:focus {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--primary-color);
+        color: var(--text-primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        outline: none;
+    }
+    
+    .form-check {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+    
+    .form-check-input {
+        width: 20px;
+        height: 20px;
+        margin-right: 0.75rem;
+        cursor: pointer;
+    }
+    
+    .form-check-label {
+        color: var(--text-primary);
+        cursor: pointer;
+    }
+    
+    .btn-save {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        border: none;
+        padding: 0.875rem 2rem;
+        border-radius: 10px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 1rem;
+    }
+    
+    .btn-save:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    
+    .stat-box {
+        background: rgba(99, 102, 241, 0.1);
+        border: 1px solid var(--dark-border);
+        border-radius: 15px;
+        padding: 1.5rem;
+        text-align: center;
+    }
+    
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 800;
+        font-family: 'JetBrains Mono', monospace;
+        background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    
+    .stat-label {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .section-divider {
+        height: 1px;
+        background: var(--dark-border);
+        margin: 2rem 0;
+    }
+    
+    .input-group {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+    
+    .input-group .form-control {
+        flex: 1;
+    }
+    
+    .info-alert {
+        background: rgba(6, 182, 212, 0.1);
+        border: 1px solid var(--accent-color);
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        color: var(--text-primary);
+    }
+    
+    .info-alert i {
+        color: var(--accent-color);
+        margin-right: 0.5rem;
+    }
+    
+    .stat-box small {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.75rem;
+        opacity: 0.8;
+    }
+</style>
+
+<script>
+    // Mostrar/ocultar configuraciones según método seleccionado
+    document.addEventListener('DOMContentLoaded', function() {
+        const methodSelect = document.querySelector('select[name="position_sizing_method"]');
+        
+        function toggleConfigSections() {
+            const selectedMethod = methodSelect.value;
+            
+            // Ocultar todos
+            document.getElementById('kelly-config').style.display = 'none';
+            document.getElementById('fixed-fractional-config').style.display = 'none';
+            document.getElementById('anti-martingale-config').style.display = 'none';
+            document.getElementById('volatility-config').style.display = 'none';
+            
+            // Mostrar según selección
+            if (selectedMethod === 'kelly' || selectedMethod === 'kelly_fractional') {
+                document.getElementById('kelly-config').style.display = 'block';
+            }
+            if (selectedMethod === 'fixed_fractional' || selectedMethod === 'anti_martingale' || selectedMethod === 'volatility' || selectedMethod === 'risk_parity') {
+                document.getElementById('fixed-fractional-config').style.display = 'block';
+            }
+            if (selectedMethod === 'anti_martingale') {
+                document.getElementById('anti-martingale-config').style.display = 'block';
+            }
+            if (selectedMethod === 'volatility') {
+                document.getElementById('volatility-config').style.display = 'block';
+            }
+        }
+        
+        if (methodSelect) {
+            methodSelect.addEventListener('change', toggleConfigSections);
+            toggleConfigSections(); // Ejecutar al cargar
+        }
+    });
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="capital-config-container">
+    <div class="container">
+        <!-- Header -->
+        <div class="config-card">
+            <div class="config-header">
+                <h2><i class="fas fa-wallet"></i> Gestión de Capital</h2>
+                <p class="text-secondary">Configura las metas diarias y límites de trading</p>
+            </div>
+            
+            {% if can_trade %}
+            <span class="status-badge active">
+                <i class="fas fa-check-circle"></i> Trading Activo
+            </span>
+            {% else %}
+            <span class="status-badge stopped">
+                <i class="fas fa-pause-circle"></i> Trading Detenido: {{ reason|default:"Límite alcanzado" }}
+            </span>
+            {% endif %}
+            
+            {% if status_message %}
+            <div class="info-alert mt-3">
+                <i class="fas fa-info-circle"></i>
+                <strong>Estado Actual:</strong> {{ status_message }}
+            </div>
+            {% endif %}
+        </div>
+        
+        <!-- Estadísticas Actuales -->
+        <div class="config-card">
+            <h3 class="mb-3"><i class="fas fa-chart-line"></i> Estadísticas del Día</h3>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-value">${{ current_balance|floatformat:2 }}</div>
+                    <div class="stat-label">Balance Actual</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">{{ trades_count|default:0 }}</div>
+                    <div class="stat-label">Trades Hoy</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">${{ daily_pnl|floatformat:2|default:"0.00" }}</div>
+                    <div class="stat-label">P&L Diario</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">{{ win_rate|floatformat:1|default:"0" }}%</div>
+                    <div class="stat-label">Win Rate</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Estadísticas Avanzadas -->
+        {% if advanced_stats %}
+        <div class="config-card">
+            <h3 class="mb-3"><i class="fas fa-brain"></i> Métricas Avanzadas</h3>
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-value">{{ advanced_stats.trading_stats.kelly_percentage|floatformat:1|default:"0" }}%</div>
+                    <div class="stat-label">Kelly Criterion</div>
+                    <small class="text-secondary">Tamaño óptimo recomendado</small>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">${{ advanced_stats.var.var_usd|floatformat:2|default:"0.00" }}</div>
+                    <div class="stat-label">Value at Risk (VaR)</div>
+                    <small class="text-secondary">{{ advanced_stats.var.confidence|floatformat:0 }}% confianza</small>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">{{ advanced_stats.drawdown_pct|floatformat:2|default:"0" }}%</div>
+                    <div class="stat-label">Drawdown Actual</div>
+                    <small class="text-secondary">Desde peak: ${{ advanced_stats.peak_balance|floatformat:2 }}</small>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">{{ advanced_stats.trading_stats.profit_factor|floatformat:2|default:"0" }}</div>
+                    <div class="stat-label">Profit Factor</div>
+                    <small class="text-secondary">Ratio ganancia/pérdida</small>
+                </div>
+            </div>
+            {% if advanced_stats.consecutive_wins > 0 or advanced_stats.consecutive_losses > 0 %}
+            <div class="info-alert mt-3">
+                <i class="fas fa-info-circle"></i>
+                <strong>Racha Actual:</strong> 
+                {% if advanced_stats.consecutive_wins > 0 %}
+                    <span class="text-success">{{ advanced_stats.consecutive_wins }} ganancias consecutivas</span>
+                {% elif advanced_stats.consecutive_losses > 0 %}
+                    <span class="text-danger">{{ advanced_stats.consecutive_losses }} pérdidas consecutivas</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+        
+        <!-- Métricas de Protección de Riesgo -->
+        {% if portfolio_metrics %}
+        <div class="config-card">
+            <h3 class="mb-3"><i class="fas fa-shield-alt"></i> Estado de Protecciones</h3>
+            {% if emergency_active %}
+            <div class="alert alert-danger mb-3" style="background: rgba(220, 38, 38, 0.2); border: 2px solid #dc2626; color: white;">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>🚨 SISTEMA DE EMERGENCIA ACTIVO</strong>
+                <p class="mb-0 mt-2">{{ emergency_reason }}</p>
+                <small>Trading detenido por seguridad</small>
+            </div>
+            {% endif %}
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-value">{{ portfolio_metrics.total_exposure_pct|floatformat:1 }}%</div>
+                    <div class="stat-label">Riesgo Total Portfolio</div>
+                    <small class="text-secondary">Límite: {{ config.max_portfolio_risk_pct|default:15.0 }}%</small>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">{{ portfolio_metrics.correlated_exposure_pct|floatformat:1 }}%</div>
+                    <div class="stat-label">Exposición Correlacionada</div>
+                    <small class="text-secondary">Límite: {{ config.max_correlated_exposure_pct|default:10.0 }}%</small>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">{{ portfolio_metrics.max_position_risk_pct|floatformat:1 }}%</div>
+                    <div class="stat-label">Riesgo Máx. Posición</div>
+                    <small class="text-secondary">Límite: {{ config.max_single_position_risk_pct|default:5.0 }}%</small>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-value">{{ portfolio_metrics.active_positions_count }}</div>
+                    <div class="stat-label">Posiciones Activas</div>
+                    <small class="text-secondary">Límite: {{ config.max_active_positions|default:10 }}</small>
+                </div>
+            </div>
+            <div class="info-alert mt-3">
+                <i class="fas fa-info-circle"></i>
+                <strong>Protecciones Activas:</strong>
+                <ul style="margin-left: 1.5rem; margin-top: 0.5rem; margin-bottom: 0;">
+                    <li>{% if config.enable_volatility_scaling|default:True %}✅{% else %}❌{% endif %} Escalamiento por Volatilidad</li>
+                    <li>{% if config.enable_time_based_stops|default:True %}✅{% else %}❌{% endif %} Cierre Basado en Tiempo</li>
+                    <li>{% if config.enable_emergency_stop|default:True %}✅{% else %}❌{% endif %} Sistema de Emergencia</li>
+                    <li>{% if config.enable_trailing_stop|default:True %}✅{% else %}❌{% endif %} Trailing Stop Loss</li>
+                </ul>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- Formulario de Configuración -->
+        <div class="config-card">
+            <h3 class="mb-4"><i class="fas fa-cog"></i> Configuración</h3>
+            
+            <form method="post">
+                {% csrf_token %}
+                
+                <!-- Metas Diarias (Valores Fijos) -->
+                <div class="mb-3">
+                    <h4 style="color: var(--text-primary);"><i class="fas fa-dollar-sign"></i> Metas Diarias (Valores Fijos)</h4>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Meta de Ganancia Diaria (USD)
+                        <small>Si se alcanza esta ganancia, el trading se detiene automáticamente</small>
+                    </label>
+                    <input type="number" 
+                           name="profit_target" 
+                           class="form-control" 
+                           value="{{ config.profit_target }}" 
+                           step="0.01" 
+                           min="0" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Pérdida Máxima Diaria (USD)
+                        <small>Si se alcanza esta pérdida, el trading se detiene automáticamente (valor negativo)</small>
+                    </label>
+                    <input type="number" 
+                           name="max_loss" 
+                           class="form-control" 
+                           value="{{ config.max_loss }}" 
+                           step="0.01" 
+                           max="0" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Máximo de Trades por Día
+                        <small>Número máximo de operaciones permitidas en un día</small>
+                    </label>
+                    <input type="number" 
+                           name="max_trades" 
+                           class="form-control" 
+                           value="{{ config.max_trades }}" 
+                           step="1" 
+                           min="1" 
+                           required>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- Metas Diarias (Porcentajes) -->
+                <div class="mb-3 mt-4">
+                    <h4 style="color: var(--text-primary);"><i class="fas fa-percentage"></i> Metas Diarias (Porcentajes)</h4>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Meta de Ganancia Diaria (%)
+                        <small>Meta como porcentaje del balance inicial del día</small>
+                    </label>
+                    <input type="number" 
+                           name="profit_target_pct" 
+                           class="form-control" 
+                           value="{{ config.profit_target_pct }}" 
+                           step="0.1" 
+                           min="0" 
+                           max="100" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Pérdida Máxima Diaria (%)
+                        <small>Pérdida máxima como porcentaje del balance inicial del día</small>
+                    </label>
+                    <input type="number" 
+                           name="max_loss_pct" 
+                           class="form-control" 
+                           value="{{ config.max_loss_pct }}" 
+                           step="0.1" 
+                           min="0" 
+                           max="100" 
+                           required>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- Protección de Ganancias -->
+                <div class="mb-3 mt-4">
+                    <h4 style="color: var(--text-primary);"><i class="fas fa-shield-alt"></i> Protección de Ganancias</h4>
+                </div>
+                
+                <div class="form-check">
+                    <input type="checkbox" 
+                           name="protect_profits" 
+                           class="form-check-input" 
+                           id="protect_profits" 
+                           {% if config.protect_profits %}checked{% endif %}>
+                    <label class="form-check-label" for="protect_profits">
+                        Activar protección de ganancias
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Porcentaje de Protección
+                        <small>Porcentaje de la meta de ganancia que se protege automáticamente</small>
+                    </label>
+                    <input type="number" 
+                           name="profit_protection_pct" 
+                           class="form-control" 
+                           value="{{ config.profit_protection_pct }}" 
+                           step="0.1" 
+                           min="0" 
+                           max="1" 
+                           required>
+                    <small class="text-secondary mt-1 d-block">Ejemplo: 0.5 = 50% de la meta de ganancia se protege</small>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- ESTRATEGIAS AVANZADAS DE POSITION SIZING -->
+                <div class="mb-3 mt-4">
+                    <h4 style="color: var(--text-primary);">
+                        <i class="fas fa-chart-line"></i> Estrategias Avanzadas de Position Sizing
+                    </h4>
+                    <p class="text-secondary small">Métodos matemáticos para calcular el tamaño óptimo de cada posición</p>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Método de Position Sizing
+                        <small>Estrategia matemática para calcular tamaño de posición</small>
+                    </label>
+                    <select name="position_sizing_method" class="form-control" required>
+                        <option value="kelly" {% if config.position_sizing_method == 'kelly' %}selected{% endif %}>
+                            Kelly Criterion (Óptimo Matemático)
+                        </option>
+                        <option value="kelly_fractional" {% if config.position_sizing_method == 'kelly_fractional' %}selected{% endif %}>
+                            Kelly Fractional (Conservador - Recomendado)
+                        </option>
+                        <option value="fixed_fractional" {% if config.position_sizing_method == 'fixed_fractional' %}selected{% endif %}>
+                            Fixed Fractional (Porcentaje Fijo)
+                        </option>
+                        <option value="anti_martingale" {% if config.position_sizing_method == 'anti_martingale' %}selected{% endif %}>
+                            Anti-Martingala (Aumentar tras Ganancias)
+                        </option>
+                        <option value="volatility" {% if config.position_sizing_method == 'volatility' %}selected{% endif %}>
+                            Volatility-Based (Basado en ATR)
+                        </option>
+                        <option value="risk_parity" {% if config.position_sizing_method == 'risk_parity' %}selected{% endif %}>
+                            Risk Parity (Riesgo Equitativo)
+                        </option>
+                    </select>
+                    <small class="text-secondary mt-1 d-block">
+                        <strong>Kelly Criterion:</strong> Calcula el tamaño óptimo basado en win rate y ratio ganancia/pérdida<br>
+                        <strong>Anti-Martingala:</strong> Aumenta el tamaño después de ganancias, reduce tras pérdidas<br>
+                        <strong>Volatility-Based:</strong> Ajusta según volatilidad del mercado (ATR)
+                    </small>
+                </div>
+                
+                <!-- Configuración Kelly Criterion -->
+                <div class="form-group" id="kelly-config">
+                    <label class="form-label">
+                        Fracción Kelly (Conservador)
+                        <small>Usar fracción del Kelly óptimo para ser más conservador (0.25 = 25%)</small>
+                    </label>
+                    <input type="number" 
+                           name="kelly_fraction" 
+                           class="form-control" 
+                           value="{{ config.kelly_fraction|default:0.25 }}" 
+                           step="0.01" 
+                           min="0.1" 
+                           max="1.0" 
+                           required>
+                    <small class="text-secondary mt-1 d-block">Recomendado: 0.25 (25% del Kelly óptimo) para reducir riesgo</small>
+                </div>
+                
+                <!-- Configuración Fixed Fractional -->
+                <div class="form-group" id="fixed-fractional-config">
+                    <label class="form-label">
+                        Riesgo por Trade (%)
+                        <small>Porcentaje del capital a arriesgar por cada trade</small>
+                    </label>
+                    <input type="number" 
+                           name="risk_per_trade_pct" 
+                           class="form-control" 
+                           value="{{ config.risk_per_trade_pct|default:1.0 }}" 
+                           step="0.1" 
+                           min="0.1" 
+                           max="5.0" 
+                           required>
+                    <small class="text-secondary mt-1 d-block">Recomendado: 1-2% del capital por trade</small>
+                </div>
+                
+                <!-- Configuración Anti-Martingala -->
+                <div class="form-group" id="anti-martingale-config">
+                    <label class="form-label">
+                        Multiplicador Anti-Martingala
+                        <small>Multiplicar tamaño de posición por este valor después de ganancia</small>
+                    </label>
+                    <input type="number" 
+                           name="anti_martingale_multiplier" 
+                           class="form-control" 
+                           value="{{ config.anti_martingale_multiplier|default:1.5 }}" 
+                           step="0.1" 
+                           min="1.0" 
+                           max="3.0" 
+                           required>
+                    <div class="form-check mt-2">
+                        <input type="checkbox" 
+                               name="anti_martingale_reset_on_loss" 
+                               class="form-check-input" 
+                               id="anti_martingale_reset" 
+                               {% if config.anti_martingale_reset_on_loss|default:True %}checked{% endif %}>
+                        <label class="form-check-label" for="anti_martingale_reset">
+                            Resetear a tamaño base después de pérdida
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Configuración Volatility-Based -->
+                <div class="form-group" id="volatility-config">
+                    <label class="form-label">
+                        Multiplicador ATR
+                        <small>Multiplicador del ATR para calcular distancia de stop loss</small>
+                    </label>
+                    <input type="number" 
+                           name="atr_multiplier" 
+                           class="form-control" 
+                           value="{{ config.atr_multiplier|default:2.0 }}" 
+                           step="0.1" 
+                           min="1.0" 
+                           max="5.0" 
+                           required>
+                    <label class="form-label mt-3">
+                        Máximo Riesgo por Trade (%)
+                        <small>Límite máximo de riesgo como porcentaje del capital</small>
+                    </label>
+                    <input type="number" 
+                           name="max_risk_per_trade_pct" 
+                           class="form-control" 
+                           value="{{ config.max_risk_per_trade_pct|default:2.0 }}" 
+                           step="0.1" 
+                           min="0.5" 
+                           max="5.0" 
+                           required>
+                </div>
+                
+                <!-- Drawdown Protection -->
+                <div class="section-divider"></div>
+                <div class="mb-3 mt-4">
+                    <h4 style="color: var(--text-primary);"><i class="fas fa-arrow-down"></i> Protección contra Drawdown</h4>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Drawdown Máximo Permitido (%)
+                        <small>Si el drawdown excede este valor, se detiene el trading</small>
+                    </label>
+                    <input type="number" 
+                           name="max_drawdown_pct" 
+                           class="form-control" 
+                           value="{{ config.max_drawdown_pct|default:10.0 }}" 
+                           step="0.5" 
+                           min="5.0" 
+                           max="20.0" 
+                           required>
+                </div>
+                
+                <div class="form-check">
+                    <input type="checkbox" 
+                           name="reduce_size_on_drawdown" 
+                           class="form-check-input" 
+                           id="reduce_size_drawdown" 
+                           {% if config.reduce_size_on_drawdown|default:True %}checked{% endif %}>
+                    <label class="form-check-label" for="reduce_size_drawdown">
+                        Reducir tamaño de posición durante drawdown
+                    </label>
+                </div>
+                
+                <!-- Portfolio Settings -->
+                <div class="section-divider"></div>
+                <div class="mb-3 mt-4">
+                    <h4 style="color: var(--text-primary);"><i class="fas fa-layer-group"></i> Gestión de Portafolio</h4>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Máximo Posiciones Simultáneas
+                        <small>Número máximo de trades abiertos al mismo tiempo</small>
+                    </label>
+                    <input type="number" 
+                           name="max_concurrent_positions" 
+                           class="form-control" 
+                           value="{{ config.max_concurrent_positions|default:5 }}" 
+                           step="1" 
+                           min="1" 
+                           max="20" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Volatilidad Objetivo (Risk Parity) (%)
+                        <small>Volatilidad objetivo para distribución equitativa de riesgo</small>
+                    </label>
+                    <input type="number" 
+                           name="target_volatility" 
+                           class="form-control" 
+                           value="{{ config.target_volatility|default:15.0 }}" 
+                           step="0.5" 
+                           min="5.0" 
+                           max="30.0" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Confianza VaR (%)
+                        <small>Nivel de confianza para Value at Risk (95% = pérdida potencial con 95% confianza)</small>
+                    </label>
+                    <input type="number" 
+                           name="var_confidence" 
+                           class="form-control" 
+                           value="{{ config.var_confidence|default:0.95 }}" 
+                           step="0.01" 
+                           min="0.90" 
+                           max="0.99" 
+                           required>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- PROTECCIONES AVANZADAS DE RIESGO -->
+                <div class="mb-3 mt-4">
+                    <h4 style="color: var(--text-primary);">
+                        <i class="fas fa-shield-alt"></i> Protecciones Avanzadas de Riesgo
+                    </h4>
+                    <p class="text-secondary small">Sistema multi-capa para proteger tu capital</p>
+                </div>
+                
+                <!-- Portfolio Risk Limits -->
+                <div class="mb-3">
+                    <h5 style="color: var(--accent-color);"><i class="fas fa-layer-group"></i> Límites de Riesgo del Portafolio</h5>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Máximo Riesgo Total del Portafolio (%)
+                        <small>Límite máximo de capital total en riesgo en todas las posiciones</small>
+                    </label>
+                    <input type="number" 
+                           name="max_portfolio_risk_pct" 
+                           class="form-control" 
+                           value="{{ config.max_portfolio_risk_pct|default:15.0 }}" 
+                           step="0.5" 
+                           min="5.0" 
+                           max="50.0" 
+                           required>
+                    <small class="text-secondary mt-1 d-block">Recomendado: 10-20% del capital total</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Máximo Riesgo por Posición Individual (%)
+                        <small>Límite máximo de riesgo para una sola posición</small>
+                    </label>
+                    <input type="number" 
+                           name="max_single_position_risk_pct" 
+                           class="form-control" 
+                           value="{{ config.max_single_position_risk_pct|default:5.0 }}" 
+                           step="0.5" 
+                           min="1.0" 
+                           max="10.0" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Máxima Exposición Correlacionada (%)
+                        <small>Límite de riesgo en símbolos que se mueven juntos (ej: todos los R_*, todos los JD*)</small>
+                    </label>
+                    <input type="number" 
+                           name="max_correlated_exposure_pct" 
+                           class="form-control" 
+                           value="{{ config.max_correlated_exposure_pct|default:10.0 }}" 
+                           step="0.5" 
+                           min="5.0" 
+                           max="30.0" 
+                           required>
+                    <small class="text-secondary mt-1 d-block">Previene sobreexposición a activos relacionados</small>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- Volatility Protection -->
+                <div class="mb-3 mt-4">
+                    <h5 style="color: var(--accent-color);"><i class="fas fa-wave-square"></i> Protección por Volatilidad</h5>
+                </div>
+                
+                <div class="form-check">
+                    <input type="checkbox" 
+                           name="enable_volatility_scaling" 
+                           class="form-check-input" 
+                           id="enable_volatility_scaling" 
+                           {% if config.enable_volatility_scaling|default:True %}checked{% endif %}>
+                    <label class="form-check-label" for="enable_volatility_scaling">
+                        Reducir tamaño de posición en alta volatilidad
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Umbral de Alta Volatilidad (múltiplo)
+                        <small>Si la volatilidad es X veces el promedio, se considera alta</small>
+                    </label>
+                    <input type="number" 
+                           name="high_volatility_threshold" 
+                           class="form-control" 
+                           value="{{ config.high_volatility_threshold|default:2.0 }}" 
+                           step="0.1" 
+                           min="1.5" 
+                           max="5.0" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Reducción en Alta Volatilidad (%)
+                        <small>Porcentaje de reducción del tamaño cuando la volatilidad es alta</small>
+                    </label>
+                    <input type="number" 
+                           name="volatility_reduction_pct" 
+                           class="form-control" 
+                           value="{{ config.volatility_reduction_pct|default:50.0 }}" 
+                           step="5.0" 
+                           min="10.0" 
+                           max="90.0" 
+                           required>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- Time-Based Protection -->
+                <div class="mb-3 mt-4">
+                    <h5 style="color: var(--accent-color);"><i class="fas fa-clock"></i> Protección Basada en Tiempo</h5>
+                </div>
+                
+                <div class="form-check">
+                    <input type="checkbox" 
+                           name="enable_time_based_stops" 
+                           class="form-check-input" 
+                           id="enable_time_based_stops" 
+                           {% if config.enable_time_based_stops|default:True %}checked{% endif %}>
+                    <label class="form-check-label" for="enable_time_based_stops">
+                        Cerrar posiciones estancadas automáticamente
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Duración Máxima de Posición (minutos)
+                        <small>Cerrar posición si no ha ganado después de X minutos</small>
+                    </label>
+                    <input type="number" 
+                           name="max_position_duration_minutes" 
+                           class="form-control" 
+                           value="{{ config.max_position_duration_minutes|default:60 }}" 
+                           step="5" 
+                           min="15" 
+                           max="240" 
+                           required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Cerrar Posiciones Perdedoras (minutos)
+                        <small>Cerrar automáticamente posiciones perdedoras después de X minutos</small>
+                    </label>
+                    <input type="number" 
+                           name="close_losing_positions_after_minutes" 
+                           class="form-control" 
+                           value="{{ config.close_losing_positions_after_minutes|default:30 }}" 
+                           step="5" 
+                           min="10" 
+                           max="120" 
+                           required>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- Emergency Stop -->
+                <div class="mb-3 mt-4">
+                    <h5 style="color: var(--accent-color);"><i class="fas fa-exclamation-triangle"></i> Sistema de Emergencia</h5>
+                </div>
+                
+                <div class="form-check">
+                    <input type="checkbox" 
+                           name="enable_emergency_stop" 
+                           class="form-check-input" 
+                           id="enable_emergency_stop" 
+                           {% if config.enable_emergency_stop|default:True %}checked{% endif %}>
+                    <label class="form-check-label" for="enable_emergency_stop">
+                        Detener trading automáticamente en caídas súbitas
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Umbral de Drawdown de Emergencia (%)
+                        <small>Si el balance cae X% en 5 minutos, se detiene todo el trading</small>
+                    </label>
+                    <input type="number" 
+                           name="emergency_drawdown_threshold_pct" 
+                           class="form-control" 
+                           value="{{ config.emergency_drawdown_threshold_pct|default:10.0 }}" 
+                           step="0.5" 
+                           min="2.0" 
+                           max="15.0" 
+                           required>
+                    <small class="text-secondary mt-1 d-block">Protección crítica contra caídas repentinas del mercado</small>
+                </div>
+                
+                <div class="section-divider"></div>
+                
+                <!-- Trailing Stop Loss -->
+                <div class="mb-3 mt-4">
+                    <h5 style="color: var(--accent-color);"><i class="fas fa-arrow-up"></i> Trailing Stop Loss</h5>
+                </div>
+                
+                <div class="form-check">
+                    <input type="checkbox" 
+                           name="enable_trailing_stop" 
+                           class="form-check-input" 
+                           id="enable_trailing_stop" 
+                           {% if config.enable_trailing_stop|default:True %}checked{% endif %}>
+                    <label class="form-check-label" for="enable_trailing_stop">
+                        Protección automática de ganancias (trailing stop)
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Distancia del Trailing Stop (%)
+                        <small>Distancia porcentual que el stop loss sigue al precio</small>
+                    </label>
+                    <input type="number" 
+                           name="trailing_stop_distance_pct" 
+                           class="form-control" 
+                           value="{{ config.trailing_stop_distance_pct|default:1.0 }}" 
+                           step="0.1" 
+                           min="0.5" 
+                           max="5.0" 
+                           required>
+                    <small class="text-secondary mt-1 d-block">El stop loss se ajusta automáticamente para proteger ganancias</small>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        Ganancia Mínima para Trailing Stop (%)
+                        <small>Ganancia mínima requerida para activar el trailing stop</small>
+                    </label>
+                    <input type="number" 
+                           name="min_profit_for_trailing_pct" 
+                           class="form-control" 
+                           value="{{ config.min_profit_for_trailing_pct|default:0.5 }}" 
+                           step="0.1" 
+                           min="0.1" 
+                           max="2.0" 
+                           required>
+                </div>
+                
+                <div class="mt-4">
+                    <button type="submit" class="btn-save">
+                        <i class="fas fa-save"></i> Guardar Configuración
+                    </button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- Información Adicional -->
+        <div class="config-card">
+            <h3 class="mb-3"><i class="fas fa-info-circle"></i> Información</h3>
+            <div class="info-alert">
+                <p><strong>¿Cómo funciona?</strong></p>
+                <ul style="margin-left: 1.5rem; margin-top: 0.5rem;">
+                    <li>El sistema verifica estas metas antes de cada ciclo de trading</li>
+                    <li>Se puede usar valores fijos (USD) o porcentajes del balance inicial</li>
+                    <li>Si se alcanza cualquier límite, el trading se detiene automáticamente</li>
+                    <li>Los contadores se reinician automáticamente a las 00:00</li>
+                    <li>La protección de ganancias ayuda a mantener los beneficios alcanzados</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

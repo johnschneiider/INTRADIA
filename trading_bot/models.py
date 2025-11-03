@@ -9,6 +9,10 @@ class DerivAPIConfig(models.Model):
     api_token = models.CharField(max_length=255, help_text="Token de API de Deriv")
     app_id = models.CharField(max_length=50, default="1089", help_text="App ID de Deriv")
     is_demo = models.BooleanField(default=True, help_text="¿Usar cuenta demo?")
+    
+    # NOTA: Los campos scope_* fueron removidos por migración 0003
+    # No deben usarse en el modelo porque no existen en la BD
+    
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

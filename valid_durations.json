@@ -1,0 +1,41 @@
+{
+  "Forex": {
+    "symbol": "frxEURUSD",
+    "valid_durations": [
+      900
+    ],
+    "min_valid": 900
+  },
+  "Commodities": {
+    "symbol": "frxXAUUSD",
+    "valid_durations": [
+      300,
+      600,
+      900
+    ],
+    "min_valid": 300
+  },
+  "Crypto": {
+    "symbol": "cryBTCUSD",
+    "valid_durations": [],
+    "min_valid": null
+  },
+  "\u00cdndice sint\u00e9tico": {
+    "symbol": "R_10",
+    "valid_durations": [
+      30,
+      60,
+      120,
+      180,
+      300,
+      600,
+      900
+    ],
+    "min_valid": 30
+  },
+  "\u00cdndice OTC": {
+    "symbol": "OTC_N225",
+    "valid_durations": [],
+    "min_valid": null
+  }
+}

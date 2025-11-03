@@ -88,8 +88,24 @@ class RealtimeTickSaver:
         auth_msg = {"authorize": self.api_token}
         ws.send(json.dumps(auth_msg))
         
-        # Suscribirse a símbolos
-        symbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000']
+        # Suscribirse a símbolos - TODOS los instrumentos activos detectados
+        symbols = [
+            # Forex - Principales
+            'frxEURUSD', 'frxGBPUSD', 'frxUSDJPY', 'frxUSDCHF', 'frxAUDUSD', 'frxUSDCAD',
+            'frxNZDUSD', 'frxEURGBP', 'frxEURJPY', 'frxGBPJPY', 'frxAUDJPY', 'frxEURAUD',
+            # Commodities
+            'frxXAUUSD', 'frxXAGUSD', 'frxXPDUSD', 'frxXPTUSD',
+            # Índices sintéticos
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+            'BOOM1000', 'CRASH1000', 'BOOM500', 'CRASH500', 'BOOM600', 'CRASH600',
+            'RDBULL', 'RDBEAR',
+            # Cryptocurrencies
+            'cryBTCUSD', 'cryETHUSD',
+            # Jump indices
+            'JD10', 'JD25', 'JD50', 'JD75',
+            # Índices OTC
+            'OTC_N225', 'OTC_AS51',
+        ]
         for symbol in symbols:
             subscribe_msg = {"ticks": symbol}
             ws.send(json.dumps(subscribe_msg))
@@ -98,7 +114,7 @@ class RealtimeTickSaver:
     def start(self):
         print("🚀 Iniciando guardado de ticks en tiempo real...")
         print(f"🔑 Token: {self.api_token[:10]}...")
-        print("📊 Suscribiéndose a R_10, R_25, R_50, CRASH1000, BOOM1000...")
+        print("📊 Suscribiéndose a FOREX, COMMODITIES, ÍNDICES, CRYPTOCURRENCIES...")
         print("💾 Guardando ticks en base de datos...")
         print("=" * 60)
         

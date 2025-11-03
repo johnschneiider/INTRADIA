@@ -1,0 +1,65 @@
+⚠️⚠️⚠️ ACCIÓN CRÍTICA REQUERIDA ⚠️⚠️⚠️
+
+Se han realizado cambios CRÍTICOS para eliminar los rechazos.
+
+DEBES REINICIAR EL SISTEMA para que los cambios surtan efecto.
+
+=======================================
+PASOS PARA REINICIAR
+=======================================
+
+1️⃣ Abre 3 TERMINALES SEPARADAS en Windows
+
+2️⃣ En cada terminal, ejecuta uno de estos comandos:
+
+   TERMINAL 1 (Trading Loop):
+   python manage.py trading_loop
+
+   TERMINAL 2 (Ticks en tiempo real):
+   python scripts\save_realtime_ticks.py
+
+   TERMINAL 3 (Dashboard Web - OPCIONAL):
+   python -m daphne -b 0.0.0.0 -p 8000 config.asgi:application
+
+=======================================
+CAMBIO CRÍTICO APLICADO
+=======================================
+
+✅ Forex ahora usa duración de 15 MINUTOS (900s)
+✅ Commodities usa duración de 5 MINUTOS (300s)  
+✅ Índices sintéticos usan duración de 30 SEGUNDOS
+✅ Crypto y OTC están excluidos (no operables)
+
+=======================================
+QUÉ ESPERAR
+=======================================
+
+Antes: Muchas órdenes "rejected"
+Ahora: Solo se operarán instrumentos que tienen duración correcta
+
+Verás en el terminal:
+✅ Órdenes aceptadas para Forex, Commodities, Índices
+❌ Crypto y OTC ya NO aparecerán (excluidos)
+
+=======================================
+VERIFICAR QUE FUNCIONA
+=======================================
+
+Después de reiniciar, ejecuta:
+
+python scripts\analizar_rechazos.py
+
+Deberías ver:
+- Muy pocos rechazos (<10%)
+- Motivos de rechazo reales (no solo "insufficient_confidence")
+- Órdenes de Forex y Commodities ejecutándose
+
+=======================================
+IMPORTANTE
+=======================================
+
+Si NO reinicias, seguirás viendo los rechazos.
+Los cambios están en el código pero el bot debe reiniciarse.
+
+¡REINICIA AHORA!
+

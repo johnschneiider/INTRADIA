@@ -33,11 +33,15 @@ class Command(BaseCommand):
         total_before = OrderAudit.objects.count()
         won_before = OrderAudit.objects.filter(status='won').count()
         lost_before = OrderAudit.objects.filter(status='lost').count()
+        rejected_before = OrderAudit.objects.filter(status='rejected').count()
+        pending_before = OrderAudit.objects.filter(status='pending').count()
         
         self.stdout.write(f'📊 Registros actuales:')
         self.stdout.write(f'   - Total: {total_before}')
         self.stdout.write(f'   - Ganadas: {won_before}')
         self.stdout.write(f'   - Perdidas: {lost_before}')
+        self.stdout.write(f'   - Rechazadas: {rejected_before}')
+        self.stdout.write(f'   - Pendientes: {pending_before}')
         self.stdout.write('')
         
         # Confirmar antes de eliminar
@@ -52,14 +56,16 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f'✅ Eliminados {deleted_count} registros de OrderAudit'))
         
         elif options['confirmed_only']:
-            self.stdout.write(self.style.WARNING('⚠️  Se eliminarán las órdenes confirmadas (won/lost)'))
+            # Cambiar comportamiento: eliminar won, lost Y rejected (todos los que afectan métricas)
+            self.stdout.write(self.style.WARNING('⚠️  Se eliminarán las órdenes finalizadas (won/lost/rejected)'))
+            self.stdout.write(self.style.WARNING('   Las órdenes pendientes (pending) se mantendrán'))
             confirm = input('¿Continuar? (s/n): ')
             if confirm.lower() != 's':
                 self.stdout.write(self.style.WARNING('❌ Operación cancelada'))
                 return
             
-            deleted_count, _ = OrderAudit.objects.filter(status__in=['won', 'lost']).delete()
-            self.stdout.write(self.style.SUCCESS(f'✅ Eliminados {deleted_count} registros de órdenes confirmadas'))
+            deleted_count, _ = OrderAudit.objects.filter(status__in=['won', 'lost', 'rejected']).delete()
+            self.stdout.write(self.style.SUCCESS(f'✅ Eliminados {deleted_count} registros de órdenes finalizadas (won/lost/rejected)'))
         
         # Reiniciar contadores en TradingStrategy (si existe la app)
         if HAS_TRADING_BOT:
@@ -84,11 +90,15 @@ class Command(BaseCommand):
         total_after = OrderAudit.objects.count()
         won_after = OrderAudit.objects.filter(status='won').count()
         lost_after = OrderAudit.objects.filter(status='lost').count()
+        rejected_after = OrderAudit.objects.filter(status='rejected').count()
+        pending_after = OrderAudit.objects.filter(status='pending').count()
         
         self.stdout.write('\n📊 Registros finales:')
         self.stdout.write(f'   - Total: {total_after}')
         self.stdout.write(f'   - Ganadas: {won_after}')
         self.stdout.write(f'   - Perdidas: {lost_after}')
+        self.stdout.write(f'   - Rechazadas: {rejected_after}')
+        self.stdout.write(f'   - Pendientes: {pending_after}')
         
         self.stdout.write('\n' + self.style.SUCCESS('✅ ¡Métricas reiniciadas exitosamente!'))
         self.stdout.write(self.style.SUCCESS('📈 El winrate, trades totales y P&L ahora están en cero\n'))

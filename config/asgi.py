@@ -25,8 +25,10 @@ try:
     
     application = ProtocolTypeRouter({
         "http": django_asgi_app,
-        "websocket": URLRouter(
-            market.routing.websocket_urlpatterns
+        "websocket": AuthMiddlewareStack(
+            URLRouter(
+                market.routing.websocket_urlpatterns
+            )
         ),
     })
 except ImportError:

@@ -16,19 +16,34 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import RedirectView
-from django.urls import re_path
+from django.shortcuts import render
+from django.views.decorators.cache import never_cache
+from django.http import HttpResponse
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 
 
 @api_view(['GET'])
 def status_view(request):
+    """API endpoint para verificar estado del sistema"""
     return Response({'status': 'ok'})
+
+@never_cache
+def home_view(request):
+    """Vista para la landing page - renderiza HTML directamente"""
+    # Asegurar que no se trate como API
+    response = render(request, 'home.html')
+    response['Content-Type'] = 'text/html; charset=utf-8'
+    response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', status_view, name='home'),
-    path('api/status', status_view, name='status'),
+    path('', home_view, name='home'),
+    path('api/status/', status_view, name='api-status'),
+    path('cuentas/', include('cuentas.urls')),
     path('engine/', include('engine.urls')),
+    path('trading/', include('trading_bot.urls')),
 ]

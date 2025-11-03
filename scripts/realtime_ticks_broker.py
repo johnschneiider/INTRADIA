@@ -24,7 +24,24 @@ class RealtimeTicksBroker:
     def __init__(self):
         self.deriv_client = DerivClient()
         self.running = False
-        self.symbols = ['R_10', 'R_25', 'R_50', 'CRASH1000', 'BOOM1000']  # Símbolos de Deriv
+        # TODOS los instrumentos activos - Forex, Commodities, Índices, Crypto
+        self.symbols = [
+            # Forex - Principales
+            'frxEURUSD', 'frxGBPUSD', 'frxUSDJPY', 'frxUSDCHF', 'frxAUDUSD', 'frxUSDCAD',
+            'frxNZDUSD', 'frxEURGBP', 'frxEURJPY', 'frxGBPJPY', 'frxAUDJPY', 'frxEURAUD',
+            # Commodities
+            'frxXAUUSD', 'frxXAGUSD', 'frxXPDUSD', 'frxXPTUSD',
+            # Índices sintéticos
+            'R_10', 'R_25', 'R_50', 'R_75', 'R_100',
+            'BOOM1000', 'CRASH1000', 'BOOM500', 'CRASH500', 'BOOM600', 'CRASH600',
+            'RDBULL', 'RDBEAR',
+            # Cryptocurrencies
+            'cryBTCUSD', 'cryETHUSD',
+            # Jump indices
+            'JD10', 'JD25', 'JD50', 'JD75',
+            # Índices OTC
+            'OTC_N225', 'OTC_AS51',
+        ]
         self.dashboard_url = 'http://127.0.0.1:8000/engine/ticks/realtime/'
         self.tick_count = 0
         
@@ -150,5 +167,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
 
 

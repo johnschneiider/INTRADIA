@@ -1,11 +1,14 @@
 """
 Bucle principal para trading basado en ticks en tiempo real
+Con integración completa de gestión avanzada de capital y protección de riesgo
 """
 
 from __future__ import annotations
 import json
+import time
 from typing import Optional, Dict, Any
 from datetime import timedelta
+from decimal import Decimal
 
 from django.utils import timezone
 from market.models import Tick
@@ -13,11 +16,15 @@ from market.models import Tick
 from engine.services.tick_based_strategy import TickBasedStrategy, TrendSignal
 from engine.services.statistical_strategy import StatisticalStrategy, StatisticalSignal
 from engine.services.execution_gateway import place_order_through_gateway
+from engine.services.advanced_capital_manager import AdvancedCapitalManager
+from engine.services.risk_protection import RiskProtectionSystem
+from engine.services.adaptive_filter_manager import AdaptiveFilterManager
 from monitoring.models import OrderAudit
+from connectors.deriv_client import DerivClient
 
 
 class TickTradingLoop:
-    """Bucle de trading basado en ticks"""
+    """Bucle de trading basado en ticks con gestión avanzada de capital y protección de riesgo"""
     
     def __init__(self, use_statistical=True):
         # NUEVA ESTRATEGIA ESTADÍSTICA HÍBRIDA
@@ -40,10 +47,109 @@ class TickTradingLoop:
         self.last_trade_time = {}
         self.min_trade_interval = timedelta(seconds=60)  # Mínimo 60 segundos entre entradas del mismo símbolo
         self.use_statistical = use_statistical
+        
+        # Inicializar sistemas de gestión de capital y protección (se cargarán desde BD al procesar)
+        self.capital_manager = None
+        self.risk_protection = None
+        self.adaptive_filter_manager = AdaptiveFilterManager()
+        self._client = None
+        
+        # Cache de balance para evitar rate limiting
+        from engine.services.balance_cache import BalanceCache
+        self._balance_cache = BalanceCache(ttl_seconds=10)
+    
+    def _initialize_capital_systems(self):
+        """Inicializar sistemas de capital y riesgo desde configuración"""
+        try:
+            from engine.models import CapitalConfig
+            capital_config = CapitalConfig.get_active()  # Renombrar para evitar conflicto
+            
+            # Obtener balance actual (con cache)
+            if not self._client:
+                # Intentar obtener configuración del usuario
+                try:
+                    from trading_bot.models import DerivAPIConfig
+                    api_config = DerivAPIConfig.objects.filter(is_active=True).only('api_token', 'is_demo', 'app_id').first()
+                    if api_config:
+                        self._client = DerivClient(
+                            api_token=api_config.api_token,
+                            is_demo=api_config.is_demo,
+                            app_id=api_config.app_id
+                        )
+                    else:
+                        self._client = DerivClient()
+                except Exception:
+                    self._client = DerivClient()
+            try:
+                balance_info = self._client.get_balance()
+                if isinstance(balance_info, dict):
+                    current_balance = Decimal(str(balance_info.get('balance', 0)))
+                else:
+                    current_balance = Decimal(str(balance_info)) if balance_info else Decimal('0')
+            except Exception:
+                current_balance = Decimal('0')  # Si hay error, asumir $0 (más seguro)
+            
+            # Aplicar controles rápidos (disable_max_trades)
+            effective_max_trades = capital_config.max_trades
+            if getattr(capital_config, 'disable_max_trades', False):
+                effective_max_trades = 999999  # Prácticamente ilimitado
+            
+            # Advanced Capital Manager
+            self.capital_manager = AdvancedCapitalManager(
+                profit_target=capital_config.profit_target,
+                max_loss=capital_config.max_loss,
+                max_trades=effective_max_trades,
+                profit_target_pct=capital_config.profit_target_pct,
+                max_loss_pct=capital_config.max_loss_pct,
+                position_sizing_method=getattr(capital_config, 'position_sizing_method', 'kelly_fractional'),
+                kelly_fraction=getattr(capital_config, 'kelly_fraction', 0.25),
+                risk_per_trade_pct=getattr(capital_config, 'risk_per_trade_pct', 1.0),
+                anti_martingale_multiplier=getattr(capital_config, 'anti_martingale_multiplier', 1.5),
+                anti_martingale_reset_on_loss=getattr(capital_config, 'anti_martingale_reset_on_loss', True),
+                enable_martingale=getattr(capital_config, 'enable_martingale', False),
+                martingale_multiplier=getattr(capital_config, 'martingale_multiplier', 2.0),
+                martingale_base_amount=getattr(capital_config, 'martingale_base_amount', Decimal('0.10')),
+                martingale_max_levels=getattr(capital_config, 'martingale_max_levels', 5),
+                martingale_reset_on_win=getattr(capital_config, 'martingale_reset_on_win', True),
+                atr_multiplier=getattr(capital_config, 'atr_multiplier', 2.0),
+                max_risk_per_trade_pct=getattr(capital_config, 'max_risk_per_trade_pct', 2.0),
+                max_drawdown_pct=getattr(capital_config, 'max_drawdown_pct', 10.0),
+                reduce_size_on_drawdown=getattr(capital_config, 'reduce_size_on_drawdown', True),
+                var_confidence=getattr(capital_config, 'var_confidence', 0.95),
+                max_concurrent_positions=getattr(capital_config, 'max_concurrent_positions', 5),
+                target_volatility=getattr(capital_config, 'target_volatility', 15.0),
+            )
+            
+            # Risk Protection System
+            self.risk_protection = RiskProtectionSystem(
+                max_portfolio_risk_pct=getattr(capital_config, 'max_portfolio_risk_pct', 15.0),
+                max_single_position_risk_pct=getattr(capital_config, 'max_single_position_risk_pct', 5.0),
+                max_correlated_exposure_pct=getattr(capital_config, 'max_correlated_exposure_pct', 10.0),
+                max_active_positions=getattr(capital_config, 'max_active_positions', 10),
+                high_volatility_threshold=getattr(capital_config, 'high_volatility_threshold', 2.0),
+                volatility_reduction_pct=getattr(capital_config, 'volatility_reduction_pct', 50.0),
+                max_position_duration_minutes=getattr(capital_config, 'max_position_duration_minutes', 60),
+                close_losing_positions_after_minutes=getattr(capital_config, 'close_losing_positions_after_minutes', 30),
+                emergency_drawdown_threshold_pct=getattr(capital_config, 'emergency_drawdown_threshold_pct', 10.0),
+                enable_trailing_stop=getattr(capital_config, 'enable_trailing_stop', True),
+                trailing_stop_distance_pct=getattr(capital_config, 'trailing_stop_distance_pct', 1.0),
+                min_profit_for_trailing_pct=getattr(capital_config, 'min_profit_for_trailing_pct', 0.5),
+            )
+            
+            # Guardar flag de enable_emergency_stop para usar en check_emergency_conditions
+            self._enable_emergency_stop = getattr(capital_config, 'enable_emergency_stop', True)
+            
+            return True
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Error inicializando sistemas de capital: {e}")
+            traceback.print_exc()
+            return False
     
     def process_symbol(self, symbol: str) -> Optional[Dict[str, Any]]:
         """
         Procesar símbolo y ejecutar operación si hay señal
+        CON PROTECCIÓN AVANZADA DE RIESGO INTEGRADA
         
         Args:
             symbol: Símbolo a procesar
@@ -52,6 +158,137 @@ class TickTradingLoop:
             Diccionario con resultado de la operación
         """
         try:
+            # Inicializar sistemas de capital si no están inicializados
+            if not self.capital_manager or not self.risk_protection:
+                if not self._initialize_capital_systems():
+                    return {
+                        'status': 'error',
+                        'reason': 'capital_system_init_failed'
+                    }
+            
+            # Obtener balance actual (obtener dict completo para account_type)
+            if not self._client:
+                # Intentar obtener configuración del usuario
+                try:
+                    from trading_bot.models import DerivAPIConfig
+                    api_config = DerivAPIConfig.objects.filter(is_active=True).only('api_token', 'is_demo', 'app_id').first()
+                    if api_config:
+                        self._client = DerivClient(
+                            api_token=api_config.api_token,
+                            is_demo=api_config.is_demo,
+                            app_id=api_config.app_id
+                        )
+                    else:
+                        self._client = DerivClient()
+                except Exception:
+                    self._client = DerivClient()
+            try:
+                # Obtener balance_info completo directamente (no usar cache que solo devuelve Decimal)
+                balance_info = self._client.get_balance()
+                # Extraer balance y account_type
+                if isinstance(balance_info, dict):
+                    current_balance = Decimal(str(balance_info.get('balance', 0)))
+                    account_type = balance_info.get('account_type', 'demo')
+                    loginid = balance_info.get('loginid', '')
+                    # Si no viene account_type, determinarlo por loginid
+                    if not account_type or account_type == 'demo':
+                        if loginid and (loginid.startswith('VRTC') or loginid.startswith('VRT')):
+                            account_type = 'demo'
+                        elif loginid:
+                            account_type = 'real'
+                else:
+                    current_balance = Decimal(str(balance_info)) if balance_info else Decimal('0')
+                    account_type = 'demo'
+            except Exception as e:
+                # Si hay error obteniendo balance, usar caché si existe o retornar error silencioso
+                # para evitar spam de errores
+                if not hasattr(self, '_last_balance_error_log'):
+                    self._last_balance_error_log = 0
+                
+                if (time.time() - self._last_balance_error_log) > 60:
+                    # Solo mostrar error cada 60 segundos para evitar spam
+                    print(f"⚠️ Error obteniendo balance: {str(e)[:50]}...")
+                    self._last_balance_error_log = time.time()
+                
+                # Intentar usar balance del caché si existe
+                if hasattr(self._client, '_balance_cache_value') and self._client._balance_cache_value:
+                    cache_balance = self._client._balance_cache_value.get('balance', 0)
+                    if cache_balance:
+                        current_balance = Decimal(str(cache_balance))
+                        account_type = self._client._balance_cache_value.get('account_type', 'demo')
+                    else:
+                        current_balance = Decimal('0')
+                        account_type = 'demo'
+                else:
+                    current_balance = Decimal('0')  # Si hay error, asumir $0 (más seguro)
+                    account_type = 'demo'
+            
+            # VALIDACIÓN CRÍTICA: Rechazar operaciones si balance es $0.00 o muy bajo
+            MIN_BALANCE_TO_TRADE = Decimal('1.00')  # Mínimo $1.00 para operar
+            if current_balance < MIN_BALANCE_TO_TRADE:
+                return {
+                    'status': 'rejected',
+                    'reason': f'insufficient_balance',
+                    'balance': float(current_balance),
+                    'message': f'Balance insuficiente: ${current_balance:.2f} (mínimo requerido: ${MIN_BALANCE_TO_TRADE:.2f})'
+                }
+            
+            # VALIDACIÓN: Advertir si es cuenta demo y balance es alto (típico de demo)
+            if account_type == 'demo' and current_balance >= Decimal('10000'):
+                # Esto es típico de cuenta demo, pero permitimos operar si el usuario quiere
+                pass  # Por ahora permitimos, pero podríamos rechazar aquí si se desea
+            
+            # 0. SISTEMA ADAPTATIVO: Obtener parámetros ajustados según métricas
+            adaptive_params = self.adaptive_filter_manager.get_adjusted_parameters(current_balance)
+            
+            # Actualizar umbrales de la estrategia con parámetros adaptativos
+            if isinstance(self.strategy, StatisticalStrategy):
+                self.strategy.update_adaptive_parameters(adaptive_params)
+            
+            # Verificar si debe pausarse el trading
+            metrics = self.adaptive_filter_manager.calculate_metrics(current_balance)
+            if self.adaptive_filter_manager.should_pause_trading(metrics):
+                return {
+                    'status': 'rejected',
+                    'reason': 'adaptive_pause',
+                    'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
+                }
+            
+            # 1. VERIFICACIÓN DE CAPITAL MANAGER (metas diarias, drawdown, etc.)
+            # Actualizar max_trades dinámicamente si disable_max_trades cambió
+            try:
+                from engine.models import CapitalConfig
+                config = CapitalConfig.get_active()
+                if getattr(config, 'disable_max_trades', False):
+                    # Si disable_max_trades está activo, asegurar que max_trades sea ilimitado
+                    if self.capital_manager.max_trades != 999999:
+                        self.capital_manager.max_trades = 999999
+            except Exception:
+                pass  # No detener si falla actualización
+            
+            can_trade, capital_reason = self.capital_manager.can_trade(current_balance)
+            if not can_trade:
+                return {
+                    'status': 'rejected',
+                    'reason': f'capital_manager: {capital_reason}'
+                }
+            
+            # 2. VERIFICACIÓN DE EMERGENCIA (caídas súbitas)
+            if self._enable_emergency_stop:
+                emergency_active, emergency_reason = self.risk_protection.check_emergency_conditions(current_balance)
+                if emergency_active:
+                    return {
+                        'status': 'rejected',
+                        'reason': f'EMERGENCY: {emergency_reason}'
+                    }
+            
+            # Excluir explícitamente BOOM/CRASH (no ofrecidos en esta cuenta en modo binario)
+            if symbol.startswith('BOOM') or symbol.startswith('CRASH'):
+                return {
+                    'status': 'no_signal',
+                    'reason': 'asset_not_offered'
+                }
+
             # Verificar si han pasado suficientes segundos desde la última entrada
             now = timezone.now()
             last_trade = self.last_trade_time.get(symbol)
@@ -67,13 +304,16 @@ class TickTradingLoop:
             signal = self.strategy.analyze_symbol(symbol)
             
             if not signal:
+                # No hay señal - omitir silenciosamente (no registrar)
                 return {
-                    'status': 'no_signal',
-                    'reason': 'no_clear_trend'
+                    'status': 'skipped',
+                    'reason': 'no_clear_trend',
+                    'message': f'Símbolo {symbol} sin señal clara, omitido'
                 }
             
             # Verificar si debe entrar
             if not self.strategy.should_enter_trade(signal):
+                # Insuficiente confianza - omitir silenciosamente (no registrar)
                 if hasattr(signal, 'force_pct'):
                     reason_data = {'force_pct': signal.force_pct}
                 elif hasattr(signal, 'confidence'):
@@ -82,22 +322,118 @@ class TickTradingLoop:
                     reason_data = {}
                 
                 return {
-                    'status': 'no_signal',
+                    'status': 'skipped',
                     'reason': 'insufficient_confidence',
+                    'message': f'Símbolo {symbol} con confianza insuficiente, omitido',
                     **reason_data
                 }
             
-            # Obtener parámetros de la operación - DURACIÓN OPTIMIZADA
-            # Duración fija de 30s para operaciones de alta frecuencia
-            duration = 30
+            # 3. CALCULAR TAMAÑO DE POSICIÓN USANDO ADVANCED CAPITAL MANAGER
+            # Obtener precio actual y ATR
+            latest_tick = Tick.objects.filter(symbol=symbol).order_by('-timestamp').first()
+            entry_price = Decimal(str(latest_tick.price)) if latest_tick else Decimal('1.0')
+            atr_value = Decimal(str(getattr(signal, 'atr_ratio', 0.0) * float(entry_price))) if hasattr(signal, 'atr_ratio') else None
+            
+            # Calcular tamaño óptimo de posición
+            position_size_result = self.capital_manager.get_recommended_position_size(
+                current_balance=current_balance,
+                symbol=symbol,
+                entry_price=entry_price,
+                stop_loss_price=None,  # Para opciones binarias no hay stop loss tradicional
+                atr_value=atr_value
+            )
+            
+            # Convertir riesgo a monto de contrato (simplificado: 1 contrato = $1)
+            # En opciones binarias, el monto es el stake
+            base_risk = position_size_result.risk_amount
+
+            # 4. APLICAR AJUSTES SEGÚN ESTRATEGIA
+            if (self.capital_manager and 
+                (self.capital_manager.enable_martingale or 
+                 self.capital_manager.position_sizing_method == 'martingale')):
+                # Martingala: usar EXACTAMENTE el monto calculado por el manager
+                # (pérdidas_acumuladas / 0.9), sin reducciones adaptativas ni protecciones
+                final_risk = base_risk
+            else:
+                # Modo normal: aplicar multiplicador adaptativo y protecciones
+                position_multiplier = adaptive_params.position_size_multiplier
+                adjusted_base_risk = base_risk * Decimal(str(position_multiplier))
+                
+                if position_multiplier < 1.0:
+                    print(f"  ⚠️ {symbol}: Tamaño de posición reducido en {(1-position_multiplier)*100:.0f}% (Drawdown: {metrics.drawdown_pct:.1%})")
+                
+                # 5. VALIDAR CON SISTEMA DE PROTECCIÓN DE RIESGO
+                risk_check = self.risk_protection.validate_new_position(
+                    symbol=symbol,
+                    base_risk=adjusted_base_risk,
+                    current_balance=current_balance
+                )
+                
+                if not risk_check.allowed:
+                    return {
+                        'status': 'rejected',
+                        'reason': f'risk_protection: {risk_check.reason}',
+                        'protection_applied': risk_check.protection_applied
+                    }
+                
+                # Usar tamaño ajustado si fue modificado por protecciones
+                final_risk = risk_check.adjusted_size if risk_check.adjusted_size else adjusted_base_risk
+            
+            # Convertir riesgo a monto de contrato (para opciones binarias)
+            # Simplificado: asumimos que cada $1 de stake = $1 de riesgo potencial máximo
+            # En realidad debería calcularse según payout, pero simplificamos
+            amount = float(final_risk)
+            
+            # Obtener parámetros de la operación - DURACIÓN DINÁMICA ADAPTATIVA
+            # Base por clase de activo + factor por volatilidad (ATR ratio)
+            atr_ratio = getattr(signal, 'atr_ratio', 0.0)
+            if symbol.startswith('frx'):
+                # Forex: usar 1 minuto (60 segundos) para opciones binarias
+                base = 60
+                atr_baseline = 0.0006
+                allowed = [60]  # 1 minuto para forex en binarias
+            else:
+                # Símbolos sintéticos y otros: usar 30 segundos
+                base = 30
+                atr_baseline = 0.0030
+                allowed = [30, 60, 120, 180, 300, 600, 900]
+
+            factor = 1.0
+            if atr_baseline > 0:
+                factor = max(0.5, min(2.0, (atr_ratio / atr_baseline) if atr_ratio > 0 else 1.0))
+            raw_duration = int(round(base * factor))
+            # Elegir bucket permitido más cercano
+            duration = min(allowed, key=lambda d: abs(d - raw_duration))
             
             trade_params = self.strategy.get_trade_params(signal, duration=duration)
             
             # Convertir dirección a lado (buy/sell)
             side = 'buy' if signal.direction == 'CALL' else 'sell'
             
-            # Monto fijo para simplicidad
-            amount = 1.0
+            # Ajustar monto según estrategia (martingala puede usar $0.10)
+            # Si está usando martingala, permitir montos menores a $1.00
+            if (self.capital_manager and 
+                (self.capital_manager.enable_martingale or 
+                 self.capital_manager.position_sizing_method == 'martingale')):
+                # Martingala: permitir montos desde $0.10
+                amount = max(0.10, amount)
+            else:
+                # Sin martingala: mínimo $1.00
+                amount = max(1.0, amount)
+            
+            amount = round(amount, 2)  # Deriv requiere máximo 2 decimales
+            
+            # VALIDACIÓN FINAL: Verificar que el amount no exceda el balance disponible
+            # Para opciones binarias, el amount es el stake que se arriesga
+            if float(current_balance) < amount:
+                return {
+                    'status': 'rejected',
+                    'reason': 'insufficient_balance_for_trade',
+                    'balance': float(current_balance),
+                    'requested_amount': amount,
+                    'account_type': account_type,
+                    'message': f'Balance insuficiente: ${current_balance:.2f} < ${amount:.2f} (monto solicitado)'
+                }
             
             # Ejecutar orden
             result = self.place_binary_option(
@@ -107,8 +443,84 @@ class TickTradingLoop:
                 duration=duration
             )
             
-            # Registrar operación
-            self.record_trade(symbol, signal, result)
+            # Actualizar estado del capital manager después de trade
+            if result.get('accepted'):
+                # El trade se registró como pending, la actualización de martingala
+                # se hará cuando el contrato expire y se actualice el status
+                pass
+            
+            # Guardar información de riesgo en el resultado para logging
+            if result.get('accepted'):
+                result['risk_amount'] = float(final_risk)
+                result['position_sizing_method'] = position_size_result.method_used
+                # Asegurar que el monto real usado esté en el resultado
+                if 'amount' not in result:
+                    result['amount'] = amount  # Monto final usado (después de ajustes)
+                
+                # Actualizar balance cacheado si viene en la respuesta
+                if 'balance_after' in result:
+                    try:
+                        self._balance_cache.update(Decimal(str(result['balance_after'])))
+                        
+                        # También actualizar el caché del DerivClient compartido
+                        # PRESERVAR account_type del resultado en lugar de hardcodear 'demo'
+                        if '_shared_deriv_client' in globals():
+                            try:
+                                # Preservar account_type del resultado o del caché actual
+                                current_account_type = result.get('account_type')
+                                if not current_account_type and _shared_deriv_client._balance_cache_value:
+                                    current_account_type = _shared_deriv_client._balance_cache_value.get('account_type', 'demo')
+                                if not current_account_type:
+                                    current_account_type = 'demo'  # Último recurso
+                                
+                                _shared_deriv_client._balance_cache_value = {
+                                    'balance': float(result['balance_after']),
+                                    'currency': 'USD',
+                                    'account_type': current_account_type  # ← USAR EL QUE VINO
+                                }
+                                _shared_deriv_client._balance_cache_time = time.time()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            
+            # Registrar operación SOLO si no es un símbolo omitido
+            # Si el resultado indica 'not_available', 'rate_limit' o 'skip_record', NO registrar
+            skip_reasons = ['not_available', 'rate_limit']
+            if result.get('skip_record') or result.get('reason') in skip_reasons:
+                # Símbolo no disponible, rate limit, o no da ganancias - omitir silenciosamente
+                reason = result.get('reason', 'not_available')
+                if reason == 'rate_limit':
+                    return {
+                        'status': 'skipped',
+                        'reason': 'rate_limit',
+                        'message': f'Rate limit alcanzado para {symbol}, omitido temporalmente'
+                    }
+                return {
+                    'status': 'skipped',
+                    'reason': result.get('reason', 'not_available'),
+                    'message': f'Símbolo {symbol} no disponible, omitido'
+                }
+            
+            # IMPORTANTE: Pasar el monto final usado (después de ajustes) a record_trade
+            # El monto real está en result['amount'] (después de ajustes en place_binary_option)
+            final_amount_used = None
+            if result.get('accepted'):
+                # Prioridad 1: result['amount'] (monto REAL usado después de todos los ajustes)
+                final_amount_used = result.get('amount')
+                if not final_amount_used:
+                    # Fallback: usar amount (pero esto es el monto ANTES de ajustes, no ideal)
+                    final_amount_used = amount
+                    print(f"⚠️ WARNING: result['amount'] no disponible para {symbol}, usando amount pre-ajustes: {amount}")
+            else:
+                final_amount_used = 0.0
+            
+            self.record_trade(symbol, signal, result, position_size_info={
+                'risk_amount': float(final_risk),
+                'amount': final_amount_used,  # Monto REAL usado (después de ajustes)
+                'method': position_size_result.method_used,
+                'confidence': position_size_result.confidence
+            })
             
             # Actualizar tiempo de última entrada
             self.last_trade_time[symbol] = now
@@ -132,7 +544,14 @@ class TickTradingLoop:
             return {
                 'status': 'executed' if result.get('accepted') else 'rejected',
                 'signal': signal_info,
-                'result': result
+                'result': result,
+                'position_size': {
+                    'amount': amount,
+                    'risk_amount': float(final_risk),
+                    'method': position_size_result.method_used,
+                    'confidence': position_size_result.confidence,
+                    'protections_applied': risk_check.protection_applied
+                }
             }
             
         except Exception as e:
@@ -157,67 +576,273 @@ class TickTradingLoop:
         from connectors.deriv_client import DerivClient
         from connectors.deriv_client import OrderRequest
         
-        client = DerivClient()
+        # Reusar un solo cliente a nivel de módulo para evitar reconexiones constantes
+        global _shared_deriv_client
+        try:
+            _shared_deriv_client
+        except NameError:
+            # Intentar obtener configuración del usuario
+            try:
+                from trading_bot.models import DerivAPIConfig
+                api_config = DerivAPIConfig.objects.filter(is_active=True).only('api_token', 'is_demo', 'app_id').first()
+                if api_config:
+                    _shared_deriv_client = DerivClient(
+                        api_token=api_config.api_token,
+                        is_demo=api_config.is_demo,
+                        app_id=api_config.app_id
+                    )
+                else:
+                    _shared_deriv_client = DerivClient()
+            except Exception:
+                _shared_deriv_client = DerivClient()
+        client = _shared_deriv_client
         
         try:
-            # Construir orden - CORREGIDO con campos requeridos
+            # PASO 1: CONECTAR Y AUTENTICAR
+            print(f"  🔐 {symbol}: Verificando conexión...")
+            if not client.connected or not client.ws or not client.ws.sock or not client.ws.sock.connected:
+                print(f"  🔐 {symbol}: Conectando y autenticando...")
+                if not client.authenticate():
+                    return {
+                        'accepted': False,
+                        'reason': 'auth_failed',
+                        'error_message': 'No se pudo autenticar con Deriv'
+                    }
+            
+            # PASO 2: VALIDAR Y AJUSTAR AMOUNT
+            amount = round(float(amount), 2)
+            
+            # Aplicar límites desde configuración
+            try:
+                from engine.models import CapitalConfig
+                config = CapitalConfig.get_active()
+                
+                # Mínimo
+                if amount < config.min_amount_per_trade:
+                    amount = config.min_amount_per_trade
+                    amount = round(amount, 2)
+                
+                # Máximo
+                if amount > config.max_amount_absolute:
+                    amount = config.max_amount_absolute
+                    amount = round(amount, 2)
+                
+                # Específico del símbolo
+                max_by_symbol = config.get_symbol_limit(symbol)
+                if max_by_symbol and amount > max_by_symbol:
+                    amount = min(amount, max_by_symbol)
+                    amount = round(amount, 2)
+            except Exception:
+                # Valores por defecto
+                if amount < 1.0:
+                    amount = 1.0
+                if amount > 500.0:
+                    amount = 500.0
+                amount = round(amount, 2)
+            
+            # PASO 3: OBTENER ASK PRICE DEL PROPOSAL (REQUERIDO PARA 'price' EN BUY)
+            contract_type = 'CALL' if side == 'buy' else 'PUT'
+            ask_price = None
+            
+            try:
+                client.response_event.clear()
+                proposal_req = {
+                    "proposal": 1,
+                    "amount": float(amount),
+                    "basis": "stake",
+                    "contract_type": contract_type,
+                    "currency": "USD",
+                    "duration": duration,
+                    "duration_unit": "s",
+                    "symbol": symbol,
+                }
+                
+                # Verificar conexión antes de enviar proposal
+                if not client.ws or not client.ws.sock or not client.ws.sock.connected:
+                    if not client.authenticate():
+                        return {'accepted': False, 'reason': 'ws_disconnected', 'error_message': 'WebSocket desconectado'}
+                
+                client.ws.send(json.dumps(proposal_req))
+                print(f"  📊 {symbol}: Enviado proposal para obtener ask_price...")
+                
+                if client.response_event.wait(timeout=5):
+                    proposal_data = client.response_data
+                    
+                    # Manejar errores en proposal
+                    if proposal_data.get("error"):
+                        error_info = proposal_data.get("error", {})
+                        error_code = error_info.get('code', '') if isinstance(error_info, dict) else ''
+                        error_message = error_info.get('message', '') if isinstance(error_info, dict) else str(error_info)
+                        
+                        # Si el error es de disponibilidad, OMITIR (no rechazar, no registrar)
+                        if error_code in ['InvalidSymbol', 'NotAvailable', 'InvalidOfferings', 'PermissionDenied', 'OfferingsValidationError', 'ContractCreationFailure']:
+                            print(f"  ⏭️ {symbol}: Símbolo no disponible, omitiendo silenciosamente | {error_code}: {error_message}")
+                            return {
+                                'accepted': False,
+                                'reason': 'not_available',  # Código especial para omitir
+                                'error_code': error_code,
+                                'error_message': error_message,
+                                'skip_record': True  # No registrar en BD
+                            }
+                        # Para otros errores, intentar igual con amount como price
+                        ask_price = float(amount)
+                        print(f"  ⚠️ {symbol}: Error en proposal ({error_code}) pero continuando con amount como price")
+                    elif proposal_data.get("proposal"):
+                        proposal = proposal_data["proposal"]
+                        ask_price = proposal.get('ask_price', 0)
+                        
+                        if ask_price and ask_price > 0:
+                            ask_price = round(ask_price, 2)
+                            print(f"  💰 {symbol}: Ask price obtenido: ${ask_price:.2f}")
+                        else:
+                            # Si no hay ask_price, usar amount (para stake basis)
+                            ask_price = float(amount)
+                            print(f"  ⚠️ {symbol}: No ask_price en proposal, usando amount: ${ask_price:.2f}")
+                    else:
+                        # Respuesta inesperada
+                        ask_price = float(amount)
+                        print(f"  ⚠️ {symbol}: Respuesta proposal inesperada, usando amount: ${ask_price:.2f}")
+                else:
+                    # Timeout en proposal
+                    ask_price = float(amount)
+                    print(f"  ⚠️ {symbol}: Timeout en proposal, usando amount como price: ${ask_price:.2f}")
+            except Exception as e:
+                # Si falla proposal, usar amount
+                ask_price = float(amount)
+                print(f"  ⚠️ {symbol}: Error obteniendo proposal: {e}, usando amount: ${ask_price:.2f}")
+            
+            # PASO 4: CONSTRUIR MENSAJE BUY (FORMATO CORRECTO DE DERIV)
             buy_msg = {
                 'buy': 1,
-                'price': 10,
+                'price': ask_price,  # Usar ask_price del proposal
                 'parameters': {
-                    'contract_type': 'CALL' if side == 'buy' else 'PUT',
+                    'contract_type': contract_type,
                     'symbol': symbol,
                     'amount': amount,
-                    'duration': duration,  # Duración en segundos
-                    'duration_unit': 's',  # Segundos
+                    'duration': duration,
+                    'duration_unit': 's',
                     'basis': 'stake',
                     'currency': 'USD'
                 }
             }
             
-            # Conectar si es necesario
-            if not client.connected:
+            print(f"  📋 {symbol}: Mensaje buy preparado | {side.upper()} | Amount: ${amount:.2f} | Price: ${ask_price:.2f} | Duration: {duration}s")
+            
+            # PASO 5: VERIFICAR CONEXIÓN FINAL
+            if not client.ws or not client.ws.sock or not client.ws.sock.connected:
+                print(f"  🔄 {symbol}: Reconectando antes de enviar orden...")
                 if not client.authenticate():
-                    return {'accepted': False, 'reason': 'auth_failed'}
-            
-            # Enviar orden
-            client.response_event.clear()
-            client.ws.send(json.dumps(buy_msg))
-            
-            # Esperar respuesta
-            if client.response_event.wait(timeout=10):
-                data = client.response_data
-                
-                if data.get('error'):
-                    print(f"  ❌ {symbol}: Error - {data['error']}")
                     return {
                         'accepted': False,
-                        'reason': f"ws_error: {data['error']}"
+                        'reason': 'ws_disconnected',
+                        'error_message': 'WebSocket desconectado y falló reconexión'
+                    }
+            
+            # PASO 6: ENVIAR ORDEN
+            try:
+                client.response_event.clear()
+                client.ws.send(json.dumps(buy_msg))
+                print(f"  📤 {symbol}: Orden enviada a Deriv | {side.upper()} | ${amount:.2f} | ${ask_price:.2f} | {duration}s")
+            except Exception as send_error:
+                error_msg = f"Error enviando orden: {send_error}"
+                print(f"  ❌ {symbol}: {error_msg}")
+                return {
+                    'accepted': False,
+                    'reason': 'send_error',
+                    'error_message': error_msg
+                }
+            
+            # PASO 7: ESPERAR RESPUESTA
+            if client.response_event.wait(timeout=15):  # Aumentado a 15s
+                data = client.response_data
+                
+                # PASO 8: MANEJAR ERRORES
+                if data.get('error'):
+                    error_info = data['error']
+                    error_code = error_info.get('code', 'unknown') if isinstance(error_info, dict) else 'unknown'
+                    error_message = error_info.get('message', str(error_info)) if isinstance(error_info, dict) else str(error_info)
+                    
+                    # Si el error es de disponibilidad, OMITIR (no rechazar, no registrar)
+                    if error_code in ['InvalidSymbol', 'NotAvailable', 'InvalidOfferings', 'PermissionDenied', 'OfferingsValidationError', 'ContractCreationFailure']:
+                        print(f"  ⏭️ {symbol}: Símbolo no disponible, omitiendo silenciosamente | {error_code}: {error_message}")
+                        return {
+                            'accepted': False,
+                            'reason': 'not_available',  # Código especial para omitir
+                            'error_code': error_code,
+                            'error_message': error_message,
+                            'error_data': error_info,
+                            'skip_record': True  # No registrar en BD
+                        }
+                    
+                    # Si el error es RateLimit, OMITIR (no rechazar, esperar y reintentar después)
+                    if error_code == 'RateLimit':
+                        print(f"  ⏸️ {symbol}: Rate limit alcanzado, omitiendo temporalmente | Esperar antes de reintentar")
+                        return {
+                            'accepted': False,
+                            'reason': 'rate_limit',  # Código especial para omitir temporalmente
+                            'error_code': error_code,
+                            'error_message': error_message,
+                            'error_data': error_info,
+                            'skip_record': True  # No registrar en BD (error temporal)
+                        }
+                    
+                    # Para otros errores (balance insuficiente, etc.), SÍ registrar como rejected
+                    print(f"  ❌ {symbol}: Deriv rechazó la orden | Código: {error_code} | Mensaje: {error_message}")
+                    
+                    return {
+                        'accepted': False,
+                        'reason': f"ws_error: {error_code}",
+                        'error_code': error_code,
+                        'error_message': error_message,
+                        'error_data': error_info
                     }
                 
+                # PASO 9: MANEJAR RESPUESTA EXITOSA
                 result = data.get('buy', {})
                 if result:
-                    print(f"  ✅ {symbol} {side.upper()} - Contract: {result.get('contract_id')} - Balance: ${result.get('balance_after', 0)}")
+                    final_amount_used = buy_msg['parameters']['amount']
+                    contract_id = result.get('contract_id')
+                    balance_after = result.get('balance_after', 0)
+                    
+                    print(f"  ✅ {symbol} {side.upper()} ACEPTADO | Contract ID: {contract_id} | Balance después: ${balance_after:.2f}")
+                    
                     return {
                         'accepted': True,
-                        'order_id': result.get('contract_id'),
+                        'order_id': contract_id,
                         'buy_price': result.get('buy_price'),
                         'payout': result.get('payout'),
-                        'balance_after': result.get('balance_after')
+                        'balance_after': balance_after,
+                        'amount': final_amount_used
                     }
                 else:
-                    return {'accepted': False, 'reason': 'no_response'}
+                    # Respuesta sin 'buy' ni 'error'
+                    print(f"  ⚠️ {symbol}: Respuesta sin 'buy' ni 'error': {data}")
+                    return {
+                        'accepted': False,
+                        'reason': 'no_response',
+                        'response_data': data
+                    }
             else:
-                print(f"  ❌ {symbol}: Timeout")
-                return {'accepted': False, 'reason': 'timeout'}
+                # Timeout esperando respuesta
+                error_msg = f"Timeout esperando respuesta de Deriv (15s)"
+                print(f"  ❌ {symbol}: {error_msg}")
+                return {
+                    'accepted': False,
+                    'reason': 'timeout',
+                    'error_message': error_msg
+                }
                 
         except Exception as e:
-            print(f"  ❌ EXCEPCIÓN: {str(e)}")
+            print(f"  ❌ {symbol}: EXCEPCIÓN: {str(e)}")
             import traceback
             traceback.print_exc()
-            return {'accepted': False, 'reason': str(e)}
+            return {
+                'accepted': False,
+                'reason': 'exception',
+                'error_message': str(e)
+            }
     
-    def record_trade(self, symbol: str, signal, result: Dict[str, Any]):
+    def record_trade(self, symbol: str, signal, result: Dict[str, Any], position_size_info: Optional[Dict[str, Any]] = None):
         """
         Registrar operación en OrderAudit
         
@@ -225,6 +850,7 @@ class TickTradingLoop:
             symbol: Símbolo
             signal: Señal de trading (TrendSignal o StatisticalSignal)
             result: Resultado de la operación
+            position_size_info: Información de tamaño de posición calculado
         """
         try:
             # Construir payload según el tipo de señal
@@ -252,18 +878,114 @@ class TickTradingLoop:
                     'strategy': 'statistical_hybrid'
                 })
             
-            OrderAudit.objects.create(
+            # Agregar información de posición sizing
+            if position_size_info:
+                request_payload['position_sizing'] = position_size_info
+            
+            # Agregar información de riesgo al response payload
+            response_payload = result.copy()
+            
+            # Guardar información de error detallada en response_payload si el trade fue rechazado
+            if not result.get('accepted'):
+                if result.get('error_code'):
+                    response_payload['error_code'] = result.get('error_code')
+                if result.get('error_message'):
+                    response_payload['error_message'] = result.get('error_message')
+                if result.get('error_data'):
+                    response_payload['error_data'] = result.get('error_data')
+            
+            # IMPORTANTE: Guardar el monto REAL usado en response_payload
+            if result.get('accepted'):
+                # El monto real está en result['amount'] (después de ajustes)
+                response_payload['amount'] = result.get('amount')
+            
+            if position_size_info:
+                response_payload['risk_amount'] = position_size_info.get('risk_amount')
+                response_payload['position_sizing_method'] = position_size_info.get('method')
+            
+            # Obtener el monto real usado (después de todos los ajustes)
+            # Orden de prioridad:
+            # 1. position_size_info['amount'] (monto REAL usado, pasado desde process_symbol)
+            # 2. result['amount'] (monto final usado desde place_binary_option)
+            # 3. position_size_info['risk_amount'] (monto calculado antes de ajustes)
+            # 4. request_payload['position_sizing'] (fallback)
+            from decimal import Decimal
+            actual_amount = None
+            
+            # Prioridad 1: position_size_info['amount'] (el más confiable, viene del caller)
+            if position_size_info and position_size_info.get('amount'):
+                actual_amount = position_size_info.get('amount')
+            
+            # Prioridad 2: result['amount'] (monto final usado desde place_binary_option)
+            if not actual_amount and result.get('accepted'):
+                actual_amount = result.get('amount')
+            
+            # Prioridad 3: position_size_info['risk_amount'] (monto calculado antes de ajustes)
+            if not actual_amount and position_size_info:
+                actual_amount = position_size_info.get('risk_amount')
+            
+            # Prioridad 4: request_payload['position_sizing'] (fallback)
+            if not actual_amount:
+                if request_payload.get('position_sizing'):
+                    actual_amount = request_payload['position_sizing'].get('amount') or request_payload['position_sizing'].get('risk_amount')
+            
+            # Si aún no tenemos monto y el trade fue aceptado, usar 1.0 como mínimo (fallback)
+            if not actual_amount:
+                if result.get('accepted'):
+                    actual_amount = 1.0
+                    print(f"⚠️ WARNING: No se encontró monto para trade {symbol}, usando fallback 1.0")
+                else:
+                    actual_amount = 0.0
+            
+            # Convertir a Decimal para guardar en size
+            size_value = Decimal(str(actual_amount))
+            
+            # Debug: verificar que el monto se guarde correctamente
+            if result.get('accepted'):
+                print(f"💾 Guardando trade {symbol}: monto={size_value}, status={result.get('status', 'pending')}")
+            
+            # Preparar error_message con información completa
+            error_message_final = ''
+            if not result.get('accepted'):
+                error_message_parts = []
+                if result.get('error_code'):
+                    error_message_parts.append(f"Código: {result.get('error_code')}")
+                if result.get('error_message'):
+                    error_message_parts.append(f"Mensaje: {result.get('error_message')}")
+                elif result.get('error_data'):
+                    error_data = result.get('error_data', {})
+                    if isinstance(error_data, dict):
+                        if error_data.get('message'):
+                            error_message_parts.append(f"Mensaje: {error_data.get('message')}")
+                        elif error_data.get('code'):
+                            error_message_parts.append(f"Código: {error_data.get('code')}")
+                if not error_message_parts:
+                    error_message_parts.append(str(result))
+                
+                error_message_final = ' | '.join(error_message_parts)
+            
+            order = OrderAudit.objects.create(
                 timestamp=timezone.now(),
                 symbol=symbol,
                 action=signal.direction.lower(),  # 'call' o 'put'
-                size=1.0,
+                size=size_value,  # Monto REAL usado
                 price=signal.entry_price,
                 status='pending' if result.get('accepted') else 'rejected',
                 request_payload=request_payload,
-                response_payload=result,
+                response_payload=response_payload,  # Ya incluye error_code y error_data si existen
                 accepted=result.get('accepted', False),
-                reason='insufficient_confidence' if not result.get('accepted') else ''
+                reason=result.get('reason', 'unknown') if not result.get('accepted') else '',
+                error_message=error_message_final  # Mensaje completo con código y mensaje
             )
+            
+            # Guardar risk_amount si está disponible (para uso por risk_protection)
+            if position_size_info and hasattr(order, 'risk_amount'):
+                try:
+                    order.risk_amount = Decimal(str(position_size_info.get('risk_amount', 0)))
+                    order.save(update_fields=['risk_amount'])
+                except Exception:
+                    pass  # Si el campo no existe, ignorar
+                    
         except Exception as e:
             print(f"Error recording trade: {e}")
 

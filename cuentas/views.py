@@ -13,7 +13,7 @@ def register(request):
             user = form.save()
             login(request, user)
             messages.success(request, '¡Cuenta creada exitosamente!')
-            return redirect('trading_bot:dashboard')
+            return redirect('engine:dashboard')
     else:
         form = UserCreationForm()
     

@@ -1,0 +1,145 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Iniciar Sesión - INTRADIA{% endblock %}
+
+{% block extra_css %}
+<style>
+    .login-container {
+        min-height: calc(100vh - 200px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2rem 0;
+    }
+    
+    .login-card {
+        background: var(--dark-card);
+        border: 1px solid var(--dark-border);
+        border-radius: 20px;
+        padding: 3rem;
+        max-width: 450px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    }
+    
+    .login-header {
+        text-align: center;
+        margin-bottom: 2.5rem;
+    }
+    
+    .login-header h2 {
+        font-size: 2rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    
+    .login-header p {
+        color: var(--text-secondary);
+    }
+    
+    .form-label {
+        color: var(--text-primary);
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+    
+    .form-control {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--dark-border);
+        color: var(--text-primary);
+        padding: 0.75rem 1rem;
+        border-radius: 10px;
+    }
+    
+    .form-control:focus {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: var(--primary-color);
+        color: var(--text-primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    
+    .btn-login {
+        width: 100%;
+        padding: 0.875rem;
+        font-weight: 600;
+        border-radius: 10px;
+        margin-top: 1.5rem;
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        border: none;
+        transition: all 0.3s ease;
+    }
+    
+    .btn-login:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(99, 102, 241, 0.4);
+    }
+    
+    .register-link {
+        text-align: center;
+        margin-top: 2rem;
+        color: var(--text-secondary);
+    }
+    
+    .register-link a {
+        color: var(--primary-color);
+        text-decoration: none;
+        font-weight: 600;
+    }
+    
+    .register-link a:hover {
+        text-decoration: underline;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <h2><i class="fas fa-sign-in-alt"></i> Iniciar Sesión</h2>
+            <p>Accede a tu cuenta de INTRADIA</p>
+        </div>
+        
+        {% if form.errors %}
+        <div class="alert alert-danger">
+            <i class="fas fa-exclamation-circle"></i>
+            Tu usuario y contraseña no coinciden. Por favor intenta de nuevo.
+        </div>
+        {% endif %}
+        
+        <form method="post" action="{% url 'cuentas:login' %}">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ next }}">
+            
+            <div class="mb-3">
+                <label for="id_username" class="form-label">
+                    <i class="fas fa-user"></i> Usuario
+                </label>
+                <input type="text" name="username" class="form-control" id="id_username" 
+                       autofocus required placeholder="Ingresa tu usuario">
+            </div>
+            
+            <div class="mb-3">
+                <label for="id_password" class="form-label">
+                    <i class="fas fa-lock"></i> Contraseña
+                </label>
+                <input type="password" name="password" class="form-control" id="id_password" 
+                       required placeholder="Ingresa tu contraseña">
+            </div>
+            
+            <button type="submit" class="btn btn-primary btn-login">
+                <i class="fas fa-sign-in-alt"></i> Iniciar Sesión
+            </button>
+        </form>
+        
+        <div class="register-link">
+            <p>¿No tienes una cuenta? <a href="{% url 'cuentas:register' %}">Regístrate aquí</a></p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

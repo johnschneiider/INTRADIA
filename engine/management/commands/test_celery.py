@@ -24,3 +24,9 @@ class Command(BaseCommand):
             self.stdout.write("💡 Asegúrate de que el worker esté ejecutándose")
 
 
+
+
+
+
+
+

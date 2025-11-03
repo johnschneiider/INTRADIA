@@ -1,0 +1,878 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    
+    <!-- SEO -->
+    <meta name="description" content="{% block meta_description %}INTRADIA - Sistema de Trading Algorítmico Inteligente{% endblock %}">
+    <meta name="keywords" content="{% block meta_keywords %}trading, algoritmos, forex, deriv, automated trading{% endblock %}">
+    <meta name="author" content="INTRADIA">
+    
+    <title>{% block title %}INTRADIA - Trading Algorítmico{% endblock %}</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="{% static 'favicon.ico' %}">
+    
+    <!-- CSS Libraries -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link href="{% static 'css/main.css' %}" rel="stylesheet">
+    
+    {% block extra_css %}{% endblock %}
+    
+    <style>
+        :root {
+            --primary-color: #6366f1;
+            --secondary-color: #8b5cf6;
+            --accent-color: #06b6d4;
+            --dark-bg: #0f172a;
+            --dark-card: #1e293b;
+            --dark-border: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #cbd5e1;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .main-content {
+            flex: 1;
+            padding-top: 80px; /* Space for fixed header */
+        }
+        
+        /* Header Styles */
+        .navbar {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--dark-border);
+            padding: 1rem 0;
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+        
+        .navbar.scrolled {
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .navbar-brand {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .navbar-brand i {
+            font-size: 1.8rem;
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .nav-link {
+            color: var(--text-secondary) !important;
+            font-weight: 500;
+            padding: 0.5rem 1rem !important;
+            transition: all 0.3s ease;
+            border-radius: 8px;
+            margin: 0 0.25rem;
+        }
+        
+        .nav-link:hover {
+            color: var(--text-primary) !important;
+            background: rgba(99, 102, 241, 0.1);
+            transform: translateY(-2px);
+        }
+        
+        .nav-link.active {
+            color: var(--primary-color) !important;
+            background: rgba(99, 102, 241, 0.15);
+        }
+        
+        .btn-primary-custom {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border: none;
+            padding: 0.6rem 1.5rem;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+        
+        .btn-primary-custom:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+        }
+        
+        /* Footer Styles */
+        .footer {
+            background: var(--dark-card);
+            border-top: 1px solid var(--dark-border);
+            padding: 3rem 0 1.5rem;
+            margin-top: auto;
+        }
+        
+        .footer h5 {
+            color: var(--text-primary);
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .footer p, .footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s ease;
+        }
+        
+        .footer a:hover {
+            color: var(--primary-color);
+        }
+        
+        .footer-bottom {
+            border-top: 1px solid var(--dark-border);
+            padding-top: 1.5rem;
+            margin-top: 2rem;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        
+        .social-links {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .social-links a {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+        
+        .social-links a:hover {
+            background: var(--primary-color);
+            transform: translateY(-3px);
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .navbar-brand {
+                font-size: 1.2rem;
+            }
+            
+            .main-content {
+                padding-top: 70px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <nav class="navbar navbar-expand-lg">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'home' %}">
+                <i class="fas fa-chart-line"></i>
+                <span>INTRADIA</span>
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" 
+                    aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto align-items-center">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="{% url 'home' %}">
+                            <i class="fas fa-home"></i> Inicio
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if '/engine' in request.path and request.path != '/engine/status/' %}active{% endif %}" href="{% url 'engine:dashboard' %}">
+                            <i class="fas fa-chart-bar"></i> Dashboard
+                        </a>
+                    </li>
+                    {% if user.is_authenticated %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="openUnifiedConfigModal(); return false;" 
+                           style="cursor: pointer;" 
+                           title="Configuración Completa">
+                            <i class="fas fa-cog" style="font-size: 1.1rem;"></i>
+                            <span class="d-lg-none ms-1">Config</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="infoDropdown" role="button" 
+                           data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-info-circle"></i> Info
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" style="background: var(--dark-card); border: 1px solid var(--dark-border);">
+                            <li><a class="dropdown-item text-light" href="{% url 'engine:status' %}">
+                                <i class="fas fa-server"></i> Status del Sistema
+                            </a></li>
+                            {% if user.is_authenticated %}
+                            <li><a class="dropdown-item text-light" href="{% url 'engine:capital-config' %}">
+                                <i class="fas fa-wallet"></i> Gestión de Capital Avanzada
+                            </a></li>
+                            {% endif %}
+                        </ul>
+                    </li>
+                    {% if user.is_authenticated %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" 
+                           data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-user-circle"></i> {{ user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" style="background: var(--dark-card); border: 1px solid var(--dark-border);">
+                            <li><a class="dropdown-item text-light" href="{% url 'trading_bot:api_config' %}">
+                                <i class="fas fa-key"></i> Config API Deriv
+                            </a></li>
+                            <li><a class="dropdown-item text-light" href="{% url 'cuentas:profile' %}">
+                                <i class="fas fa-user"></i> Perfil
+                            </a></li>
+                            <li><hr class="dropdown-divider" style="border-color: var(--dark-border);"></li>
+                            <li><a class="dropdown-item text-light" href="{% url 'cuentas:logout' %}">
+                                <i class="fas fa-sign-out-alt"></i> Cerrar Sesión
+                            </a></li>
+                        </ul>
+                    </li>
+                    {% else %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'cuentas:login' %}">
+                            <i class="fas fa-sign-in-alt"></i> Iniciar Sesión
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="btn btn-primary-custom text-white ms-2" href="{% url 'cuentas:register' %}">
+                            Registrarse
+                        </a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="main-content">
+        {% if messages %}
+        <div class="container mt-3">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-4 col-md-6 mb-4">
+                    <h5><i class="fas fa-chart-line"></i> INTRADIA</h5>
+                    <p>Sistema de Trading Algorítmico Inteligente. Análisis en tiempo real con estrategias estadísticas avanzadas.</p>
+                    <div class="social-links">
+                        <a href="#" title="GitHub"><i class="fab fa-github"></i></a>
+                        <a href="#" title="Twitter"><i class="fab fa-twitter"></i></a>
+                        <a href="#" title="LinkedIn"><i class="fab fa-linkedin"></i></a>
+                    </div>
+                </div>
+                
+                <div class="col-lg-2 col-md-6 mb-4">
+                    <h5>Plataforma</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="{% url 'home' %}">Inicio</a></li>
+                        <li><a href="{% url 'engine:dashboard' %}">Dashboard</a></li>
+                        <li><a href="{% url 'engine:status' %}">Status</a></li>
+                        <li><a href="{% url 'engine:metrics' %}">Métricas</a></li>
+                    </ul>
+                </div>
+                
+                <div class="col-lg-3 col-md-6 mb-4">
+                    <h5>Recursos</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#documentation">Documentación</a></li>
+                        <li><a href="#api">API</a></li>
+                        <li><a href="#examples">Ejemplos</a></li>
+                        <li><a href="#support">Soporte</a></li>
+                    </ul>
+                </div>
+                
+                <div class="col-lg-3 col-md-6 mb-4">
+                    <h5>Legal</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#terms">Términos</a></li>
+                        <li><a href="#privacy">Privacidad</a></li>
+                        <li><a href="#cookies">Cookies</a></li>
+                        <li><a href="#risk">Aviso de Riesgo</a></li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="footer-bottom">
+                <p>&copy; 2025 INTRADIA. Todos los derechos reservados. | Trading conlleva riesgos.</p>
+                <p class="small text-muted">Versión 1.0.0 | Actualizado: <span id="last-update"></span></p>
+            </div>
+        </div>
+    </footer>
+    
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    
+    <script>
+        // Navbar scroll effect
+        window.addEventListener('scroll', function() {
+            const navbar = document.querySelector('.navbar');
+            if (window.scrollY > 50) {
+                navbar.classList.add('scrolled');
+            } else {
+                navbar.classList.remove('scrolled');
+            }
+        });
+        
+        // Update last update time
+        document.getElementById('last-update').textContent = new Date().toLocaleDateString('es-ES');
+        
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    </script>
+    
+    <!-- Modal Unificado de Configuración -->
+    {% if user.is_authenticated %}
+    <div class="modal fade" id="unifiedConfigModal" tabindex="-1" aria-labelledby="unifiedConfigModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content" style="background: var(--dark-card); border: 1px solid var(--dark-border); color: var(--text-primary);">
+                <div class="modal-header" style="border-bottom: 1px solid var(--dark-border);">
+                    <h5 class="modal-title" id="unifiedConfigModalLabel" style="background: linear-gradient(135deg, var(--primary-color), var(--accent-color)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+                        <i class="fas fa-cog"></i> Configuración Completa
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+                    <!-- Pestañas -->
+                    <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist" style="border-bottom: 1px solid var(--dark-border);">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="trading-tab" data-bs-toggle="tab" data-bs-target="#trading-pane" type="button" role="tab" style="color: var(--text-secondary);">
+                                <i class="fas fa-sliders-h"></i> Trading
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="quick-tab" data-bs-toggle="tab" data-bs-target="#quick-pane" type="button" role="tab" style="color: var(--text-secondary);">
+                                <i class="fas fa-stopwatch"></i> Controles Rápidos
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="capital-tab" data-bs-toggle="tab" data-bs-target="#capital-pane" type="button" role="tab" style="color: var(--text-secondary);">
+                                <i class="fas fa-wallet"></i> Capital
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content" id="configTabContent">
+                        <!-- Pestaña 1: Trading -->
+                        <div class="tab-pane fade show active" id="trading-pane" role="tabpanel">
+                            <form id="tradingConfigForm">
+                                <!-- Límites Generales -->
+                                <div class="mb-4">
+                                    <h6 class="mb-3" style="color: var(--primary-color);"><i class="fas fa-sliders-h"></i> Límites Generales</h6>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Máximo Amount (% del Balance)</label>
+                                        <input type="number" class="form-control" id="max_amount_pct_balance" step="0.1" min="0" max="100" required>
+                                        <small class="text-muted">Porcentaje máximo del balance que se puede usar en una operación</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Límite Absoluto Máximo ($)</label>
+                                        <input type="number" class="form-control" id="max_amount_absolute" step="0.01" min="1" required>
+                                        <small class="text-muted">Nunca se excederá este monto, sin importar el balance</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Amount Mínimo por Trade ($)</label>
+                                        <input type="number" class="form-control" id="min_amount_per_trade" step="0.01" min="0.01" required>
+                                        <small class="text-muted">Monto mínimo permitido por operación</small>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Intervalo Mínimo entre Trades (segundos)</label>
+                                        <input type="number" class="form-control" id="min_trade_interval_seconds" step="1" min="1" required>
+                                        <small class="text-muted">Tiempo mínimo entre operaciones del mismo símbolo</small>
+                                    </div>
+                                </div>
+                                
+                                <!-- Duraciones por Defecto -->
+                                <div class="mb-4">
+                                    <h6 class="mb-3" style="color: var(--primary-color);"><i class="fas fa-clock"></i> Duraciones por Defecto (segundos)</h6>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Forex (EURUSD, GBPUSD, etc.)</label>
+                                        <input type="number" class="form-control" id="default_duration_forex" step="1" min="1" required>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Metales (GOLD, SILVER, etc.)</label>
+                                        <input type="number" class="form-control" id="default_duration_metals" step="1" min="1" required>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label class="form-label">Índices (R_10, R_25, JD10, etc.)</label>
+                                        <input type="number" class="form-control" id="default_duration_indices" step="1" min="1" required>
+                                    </div>
+                                </div>
+                                
+                                <!-- Límites por Símbolo -->
+                                <div class="mb-4">
+                                    <h6 class="mb-3" style="color: var(--primary-color);"><i class="fas fa-coins"></i> Límites de Amount por Símbolo</h6>
+                                    <div id="symbolLimitsContainer">
+                                        <!-- Se llenará dinámicamente -->
+                                    </div>
+                                    
+                                    <div class="row mb-3">
+                                        <div class="col-md-6">
+                                            <input type="text" class="form-control" id="new_symbol" placeholder="Nuevo Símbolo (ej: RDBULL)">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <input type="number" class="form-control" id="new_symbol_limit" step="0.01" min="0.01" placeholder="Límite ($)">
+                                        </div>
+                                        <div class="col-md-2">
+                                            <button type="button" class="btn btn-sm btn-primary w-100" onclick="addSymbolLimit()">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- Pestaña 2: Controles Rápidos -->
+                        <div class="tab-pane fade" id="quick-pane" role="tabpanel">
+                            <form id="quickControlsForm">
+                                <div class="alert alert-warning" style="background: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning-color); color: var(--text-primary);">
+                                    <i class="fas fa-exclamation-triangle"></i> <strong>Modo Pruebas:</strong> Estos ajustes son temporales para facilitar pruebas.
+                                </div>
+                                
+                                <!-- Desactivar Límite de Trades -->
+                                <div class="mb-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="disable_max_trades" style="cursor: pointer;">
+                                        <label class="form-check-label" for="disable_max_trades" style="cursor: pointer;">
+                                            <strong><i class="fas fa-infinity"></i> Desactivar Límite de Trades</strong>
+                                            <br>
+                                            <small class="text-muted">Permite operar sin límite de trades por día</small>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <!-- Desactivar Meta de Ganancia -->
+                                <div class="mb-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="disable_profit_target" style="cursor: pointer;">
+                                        <label class="form-check-label" for="disable_profit_target" style="cursor: pointer;">
+                                            <strong><i class="fas fa-bullseye"></i> Desactivar Meta de Ganancia</strong>
+                                            <br>
+                                            <small class="text-muted">No detiene el trading al alcanzar la meta de ganancia</small>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <!-- Stop Loss por Monto -->
+                                <div class="mb-3">
+                                    <label class="form-label">
+                                        <strong><i class="fas fa-exclamation-triangle"></i> Stop Loss por Monto (USD)</strong>
+                                    </label>
+                                    <input type="number" class="form-control" id="stop_loss_amount" step="0.01" min="0" placeholder="0.00 (0 = desactivado)">
+                                    <small class="text-muted">
+                                        El trading se detendrá automáticamente cuando la pérdida acumulada alcance este monto.<br>
+                                        <strong>Ejemplo:</strong> Si ingresas 10.00, se detendrá al perder $10 USD
+                                    </small>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- Pestaña 3: Capital -->
+                        <div class="tab-pane fade" id="capital-pane" role="tabpanel">
+                            <div class="alert alert-info" style="background: rgba(99, 102, 241, 0.1); border: 1px solid var(--primary-color); color: var(--text-primary);">
+                                <i class="fas fa-info-circle"></i> <strong>Configuración Avanzada:</strong> Para ajustes detallados de capital, gestión de riesgo y estrategias avanzadas, visita la página completa.
+                            </div>
+                            <div class="d-grid gap-2">
+                                <a href="{% url 'engine:capital-config' %}" class="btn btn-primary" target="_blank">
+                                    <i class="fas fa-external-link-alt"></i> Abrir Gestión de Capital Avanzada
+                                </a>
+                                <small class="text-muted text-center mt-2">
+                                    Incluye: Metas diarias, estrategias de position sizing, protecciones de riesgo avanzadas, y más.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer" style="border-top: 1px solid var(--dark-border);">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                    <button type="button" class="btn btn-primary" onclick="saveUnifiedConfig()">
+                        <i class="fas fa-save"></i> Guardar Todo
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Función para abrir el modal unificado y cargar todas las configuraciones
+        function openUnifiedConfigModal() {
+            const modal = new bootstrap.Modal(document.getElementById('unifiedConfigModal'));
+            
+            // Cargar configuración de Trading
+            fetch('{% url "engine:trading-config-api" %}', {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Llenar campos de Trading
+                document.getElementById('max_amount_pct_balance').value = data.max_amount_pct_balance || 5.0;
+                document.getElementById('max_amount_absolute').value = data.max_amount_absolute || 500.0;
+                document.getElementById('min_amount_per_trade').value = data.min_amount_per_trade || 1.0;
+                document.getElementById('min_trade_interval_seconds').value = data.min_trade_interval_seconds || 60;
+                document.getElementById('default_duration_forex').value = data.default_duration_forex || 900;
+                document.getElementById('default_duration_metals').value = data.default_duration_metals || 300;
+                document.getElementById('default_duration_indices').value = data.default_duration_indices || 30;
+                
+                // Llenar límites por símbolo
+                const container = document.getElementById('symbolLimitsContainer');
+                container.innerHTML = '';
+                
+                const limits = data.symbol_amount_limits || {};
+                for (const [symbol, limit] of Object.entries(limits)) {
+                    addSymbolLimitRow(symbol, limit);
+                }
+            })
+            .catch(error => {
+                console.error('Error cargando configuración de trading:', error);
+            });
+            
+            // Cargar configuración de Controles Rápidos
+            fetch('{% url "engine:quick-controls-api" %}', {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Llenar campos de Controles Rápidos
+                document.getElementById('disable_max_trades').checked = data.disable_max_trades || false;
+                document.getElementById('disable_profit_target').checked = data.disable_profit_target || false;
+                document.getElementById('stop_loss_amount').value = data.stop_loss_amount || 0;
+            })
+            .catch(error => {
+                console.error('Error cargando controles rápidos:', error);
+            });
+            
+            modal.show();
+        }
+        
+        // Agregar fila de límite por símbolo
+        function addSymbolLimitRow(symbol, limit) {
+            const container = document.getElementById('symbolLimitsContainer');
+            const row = document.createElement('div');
+            row.className = 'row mb-2';
+            row.id = `symbol_row_${symbol}`;
+            row.innerHTML = `
+                <div class="col-md-6">
+                    <input type="text" class="form-control" value="${symbol}" readonly>
+                </div>
+                <div class="col-md-4">
+                    <input type="number" class="form-control symbol-limit-input" 
+                           data-symbol="${symbol}" 
+                           value="${limit}" 
+                           step="0.01" 
+                           min="0.01" 
+                           required>
+                </div>
+                <div class="col-md-2">
+                    <button type="button" class="btn btn-sm btn-danger w-100" onclick="removeSymbolLimit('${symbol}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            `;
+            container.appendChild(row);
+        }
+        
+        // Agregar nuevo símbolo
+        function addSymbolLimit() {
+            const symbol = document.getElementById('new_symbol').value.trim().toUpperCase();
+            const limit = parseFloat(document.getElementById('new_symbol_limit').value);
+            
+            if (!symbol || !limit || limit <= 0) {
+                alert('Por favor ingrese un símbolo válido y un límite mayor a 0');
+                return;
+            }
+            
+            // Verificar si ya existe
+            if (document.getElementById(`symbol_row_${symbol}`)) {
+                alert('Este símbolo ya existe en la lista');
+                return;
+            }
+            
+            addSymbolLimitRow(symbol, limit);
+            
+            // Limpiar campos
+            document.getElementById('new_symbol').value = '';
+            document.getElementById('new_symbol_limit').value = '';
+        }
+        
+        // Remover símbolo
+        function removeSymbolLimit(symbol) {
+            const row = document.getElementById(`symbol_row_${symbol}`);
+            if (row) {
+                row.remove();
+            }
+        }
+        
+        // Guardar configuración unificada (todas las pestañas)
+        function saveUnifiedConfig() {
+            // Guardar configuración de Trading
+            saveTradingConfig(function() {
+                // Después de guardar Trading, guardar Controles Rápidos
+                saveQuickControls();
+            });
+        }
+        
+        // Guardar configuración de Trading (versión con callback)
+        function saveTradingConfig(callback) {
+            // Recopilar datos del formulario
+            const config = {
+                max_amount_pct_balance: parseFloat(document.getElementById('max_amount_pct_balance').value),
+                max_amount_absolute: parseFloat(document.getElementById('max_amount_absolute').value),
+                min_amount_per_trade: parseFloat(document.getElementById('min_amount_per_trade').value),
+                min_trade_interval_seconds: parseInt(document.getElementById('min_trade_interval_seconds').value),
+                default_duration_forex: parseInt(document.getElementById('default_duration_forex').value),
+                default_duration_metals: parseInt(document.getElementById('default_duration_metals').value),
+                default_duration_indices: parseInt(document.getElementById('default_duration_indices').value),
+                symbol_amount_limits: {}
+            };
+            
+            // Recopilar límites por símbolo
+            document.querySelectorAll('.symbol-limit-input').forEach(input => {
+                const symbol = input.getAttribute('data-symbol');
+                const limit = parseFloat(input.value);
+                if (symbol && limit > 0) {
+                    config.symbol_amount_limits[symbol] = limit;
+                }
+            });
+            
+            // Enviar a la API
+            fetch('{% url "engine:trading-config-api" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    if (callback) {
+                        callback(); // Continuar con siguiente guardado
+                    } else {
+                        alert('✅ Configuración de Trading guardada exitosamente');
+                    }
+                } else {
+                    alert('❌ Error al guardar Trading: ' + (data.message || 'Error desconocido'));
+                }
+            })
+            .catch(error => {
+                console.error('Error guardando configuración de trading:', error);
+                alert('❌ Error al guardar la configuración de Trading');
+            });
+        }
+        
+        // Helper para obtener cookie CSRF
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        
+        // Función para guardar controles rápidos (usada internamente)
+        function saveQuickControls() {
+            const config = {
+                disable_max_trades: document.getElementById('disable_max_trades').checked,
+                disable_profit_target: document.getElementById('disable_profit_target').checked,
+                stop_loss_amount: parseFloat(document.getElementById('stop_loss_amount').value) || 0
+            };
+            
+            // Enviar a la API
+            fetch('{% url "engine:quick-controls-api" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Si se llama desde saveUnifiedConfig, mostrar mensaje unificado
+                    if (!document.getElementById('unifiedConfigModal').classList.contains('show')) {
+                        alert('✅ Controles guardados exitosamente');
+                    }
+                } else {
+                    alert('❌ Error al guardar Controles Rápidos: ' + (data.message || 'Error desconocido'));
+                }
+            })
+            .catch(error => {
+                console.error('Error guardando controles:', error);
+                alert('❌ Error al guardar los controles rápidos');
+            });
+        }
+        
+        // Función para guardar todo (usada por el botón "Guardar Todo")
+        function saveUnifiedConfig() {
+            let savedTrading = false;
+            let savedQuick = false;
+            
+            // Guardar Trading
+            const tradingConfig = {
+                max_amount_pct_balance: parseFloat(document.getElementById('max_amount_pct_balance').value),
+                max_amount_absolute: parseFloat(document.getElementById('max_amount_absolute').value),
+                min_amount_per_trade: parseFloat(document.getElementById('min_amount_per_trade').value),
+                min_trade_interval_seconds: parseInt(document.getElementById('min_trade_interval_seconds').value),
+                default_duration_forex: parseInt(document.getElementById('default_duration_forex').value),
+                default_duration_metals: parseInt(document.getElementById('default_duration_metals').value),
+                default_duration_indices: parseInt(document.getElementById('default_duration_indices').value),
+                symbol_amount_limits: {}
+            };
+            
+            // Recopilar límites por símbolo
+            document.querySelectorAll('.symbol-limit-input').forEach(input => {
+                const symbol = input.getAttribute('data-symbol');
+                const limit = parseFloat(input.value);
+                if (symbol && limit > 0) {
+                    tradingConfig.symbol_amount_limits[symbol] = limit;
+                }
+            });
+            
+            // Guardar Controles Rápidos
+            const quickConfig = {
+                disable_max_trades: document.getElementById('disable_max_trades').checked,
+                disable_profit_target: document.getElementById('disable_profit_target').checked,
+                stop_loss_amount: parseFloat(document.getElementById('stop_loss_amount').value) || 0
+            };
+            
+            // Guardar ambas configuraciones en paralelo
+            Promise.all([
+                fetch('{% url "engine:trading-config-api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(tradingConfig)
+                }).then(r => r.json()),
+                fetch('{% url "engine:quick-controls-api" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(quickConfig)
+                }).then(r => r.json())
+            ])
+            .then(([tradingResult, quickResult]) => {
+                if (tradingResult.success && quickResult.success) {
+                    alert('✅ Todas las configuraciones guardadas exitosamente');
+                    bootstrap.Modal.getInstance(document.getElementById('unifiedConfigModal')).hide();
+                } else {
+                    let errors = [];
+                    if (!tradingResult.success) errors.push('Trading: ' + (tradingResult.message || 'Error'));
+                    if (!quickResult.success) errors.push('Controles: ' + (quickResult.message || 'Error'));
+                    alert('❌ Errores al guardar:\n' + errors.join('\n'));
+                }
+            })
+            .catch(error => {
+                console.error('Error guardando configuraciones:', error);
+                alert('❌ Error al guardar las configuraciones');
+            });
+        }
+    </script>
+    {% endif %}
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+
+

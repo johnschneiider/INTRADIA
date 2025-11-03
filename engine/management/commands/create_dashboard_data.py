@@ -91,3 +91,9 @@ class Command(BaseCommand):
         self.stdout.write("\n🎉 ¡Dashboard listo para mostrar datos realistas!")
 
 
+
+
+
+
+
+

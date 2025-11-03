@@ -130,6 +130,9 @@ if os.getenv('POSTGRES_HOST'):
             'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'intradia'),
             'HOST': os.getenv('POSTGRES_HOST', 'db'),
             'PORT': int(os.getenv('POSTGRES_PORT', '5432')),
+            'OPTIONS': {
+                'client_encoding': 'UTF8',
+            },
         }
     }
 else:
@@ -137,8 +140,24 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 30,  # Timeout de 30 segundos para esperar que se libere el lock
+                'check_same_thread': False,  # Permitir acceso desde múltiples threads
+            },
         }
     }
+    
+    # Configurar WAL mode para SQLite (permite lecturas concurrentes mientras se escribe)
+    # Esto se hace después de la conexión inicial
+    import sqlite3
+    try:
+        conn = sqlite3.connect(str(BASE_DIR / 'db.sqlite3'))
+        conn.execute('PRAGMA journal_mode=WAL;')
+        conn.execute('PRAGMA busy_timeout=30000;')  # 30 segundos en milisegundos
+        conn.execute('PRAGMA synchronous=NORMAL;')  # Balance entre seguridad y rendimiento
+        conn.close()
+    except Exception as e:
+        print(f'⚠️ No se pudo configurar WAL mode: {e}')
 
 
 # Password validation
@@ -201,8 +220,26 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Login URLs
 LOGIN_URL = 'cuentas:login'
-LOGIN_REDIRECT_URL = 'trading_bot:dashboard'
+LOGIN_REDIRECT_URL = 'engine:dashboard'
 LOGOUT_REDIRECT_URL = 'cuentas:login'
+
+# Session Configuration - Reducir bloqueos de BD
+SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'  # Cache + BD para mejor rendimiento
+SESSION_CACHE_ALIAS = 'default'
+SESSION_COOKIE_AGE = 86400  # 24 horas
+SESSION_SAVE_EVERY_REQUEST = False  # No guardar en cada request para reducir accesos a BD
+
+# Cache Configuration - Para sesiones y mejor rendimiento
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'TIMEOUT': 300,
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000
+        }
+    }
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -217,6 +254,9 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
     ],
 }
 
