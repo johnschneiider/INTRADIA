@@ -32,8 +32,17 @@ class Command(BaseCommand):
         # Obtener configuración de API desde la BD
         try:
             from trading_bot.models import DerivAPIConfig
+            # Debug: ver todas las configuraciones
+            all_configs = DerivAPIConfig.objects.all()
+            print(f"🔍 DEBUG: Total configuraciones en BD: {all_configs.count()}")
+            for c in all_configs:
+                print(f"  - User: {c.user.username}, Active: {c.is_active}, Token: {c.api_token[:10]}...")
+            
             api_config = DerivAPIConfig.objects.filter(is_active=True).only('api_token', 'is_demo', 'app_id').first()
+            print(f"🔍 DEBUG: Config activa encontrada: {api_config}")
+            
             if api_config:
+                print(f"✅ Usando token: {api_config.api_token[:10]}...")
                 client = DerivClient(
                     api_token=api_config.api_token,
                     is_demo=api_config.is_demo,
@@ -43,6 +52,8 @@ class Command(BaseCommand):
                 raise ValueError("No hay configuración de API activa. Configura tu token en: http://localhost:8000/trading/config/api/")
         except Exception as e:
             print(f"❌ Error al inicializar DerivClient: {e}")
+            import traceback
+            traceback.print_exc()
             raise
         
         # Configurar Capital Manager desde la base de datos o variables de entorno
