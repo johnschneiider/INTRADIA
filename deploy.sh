@@ -14,8 +14,8 @@ PROJECT_NAME="intradia"
 DOMAIN="vitalmix.com.co"
 DOMAIN_WWW="www.vitalmix.com.co"
 PYTHON_BIN="python3"
-GUNICORN_PORT=8001       # No interferir con otros proyectos (p.ej., 8000)
-DAPHNE_PORT=8002         # WebSocket
+GUNICORN_PORT=8002       # No interferir con predicta.com.co (8001) y appo.com.co
+DAPHNE_PORT=8003         # WebSocket (no interferir con otros proyectos)
 
 VENV_DIR="$PROJECT_DIR/venv"
 NGINX_SITE="/etc/nginx/sites-available/${PROJECT_NAME}"
