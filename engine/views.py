@@ -1156,6 +1156,28 @@ def trading_loop_control_api(request):
     import subprocess
     import json
     
+    if request.method == 'GET':
+        # Para GET, solo retornar el estado actual
+        try:
+            service_name = 'intradia-trading-loop.service'
+            result = subprocess.run(
+                ['sudo', 'systemctl', 'is-active', service_name],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            is_active = result.returncode == 0
+            return JsonResponse({
+                'success': True,
+                'is_active': is_active,
+                'status': 'active' if is_active else 'inactive'
+            })
+        except Exception as e:
+            return JsonResponse({
+                'success': False,
+                'message': str(e)
+            }, status=500)
+    
     if request.method != 'POST':
         return JsonResponse({'success': False, 'message': 'Método no permitido'}, status=405)
     
