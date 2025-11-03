@@ -894,18 +894,29 @@
     }
     
     function updateBotControl() {
+        const button = document.getElementById('botControlBtn');
+        const indicator = document.getElementById('botStatusIndicator');
+        const statusText = document.getElementById('botStatusText');
+        
+        if (!button || !indicator || !statusText) {
+            return; // Elementos no disponibles aún
+        }
+        
         fetch('{% url "engine:services-status" %}')
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
             .then(data => {
-                if (data.success && data.services['trading-loop']) {
+                if (data.success && data.services && data.services['trading-loop']) {
                     const tradingLoop = data.services['trading-loop'];
                     const isActive = tradingLoop.active;
-                    const button = document.getElementById('botControlBtn');
-                    const indicator = document.getElementById('botStatusIndicator');
-                    const statusText = document.getElementById('botStatusText');
                     
                     if (button) {
                         button.setAttribute('data-is-active', isActive);
+                        button.disabled = false;
                         button.innerHTML = `
                             <i class="fas fa-${isActive ? 'pause' : 'play'}"></i>
                             ${isActive ? 'Pausar Bot' : 'Reanudar Bot'}
@@ -919,10 +930,26 @@
                     if (statusText) {
                         statusText.textContent = isActive ? 'Bot activo y operando' : 'Bot pausado';
                     }
+                } else {
+                    // Si no hay datos, mostrar estado desconocido
+                    if (button) {
+                        button.disabled = false;
+                        button.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Estado desconocido';
+                    }
+                    if (statusText) {
+                        statusText.textContent = 'No se pudo obtener el estado';
+                    }
                 }
             })
             .catch(error => {
                 console.error('Error actualizando control del bot:', error);
+                if (button) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Error';
+                }
+                if (statusText) {
+                    statusText.textContent = 'Error al obtener estado';
+                }
             });
     }
     
