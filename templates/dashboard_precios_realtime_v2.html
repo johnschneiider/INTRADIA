@@ -669,13 +669,16 @@
             return;
         }
         
-        container.innerHTML = '<table class="table table-sm table-dark"><thead><tr><th>Símbolo</th><th>Tipo</th><th>Precio</th><th>Monto</th><th>Hora</th></tr></thead><tbody>' +
+        container.innerHTML = '<table class="table table-sm table-dark"><thead><tr><th>Símbolo</th><th>Tipo</th><th>Precio</th><th>Monto</th><th>Confianza</th><th>Estrategia</th><th>Contract ID</th><th>Hora</th></tr></thead><tbody>' +
             trades.map(trade => `
                 <tr>
                     <td><strong>${trade.symbol}</strong></td>
                     <td><span class="badge ${trade.direction === 'CALL' ? 'bg-success' : 'bg-danger'}">${trade.direction}</span></td>
                     <td>$${parseFloat(trade.price || 0).toFixed(4)}</td>
                     <td><strong>$${parseFloat(trade.amount || 0).toFixed(2)}</strong></td>
+                    <td>${trade.confidence_pct != null ? (parseFloat(trade.confidence_pct).toFixed(1) + '%') : '-'}</td>
+                    <td><span class="badge bg-info">${trade.strategy || 'Desconocida'}</span></td>
+                    <td><code>${trade.contract_id || '-'}</code></td>
                     <td>${new Date(trade.timestamp).toLocaleTimeString()}</td>
                 </tr>
             `).join('') +
@@ -691,7 +694,7 @@
             return;
         }
         
-        container.innerHTML = '<table class="table table-sm table-dark"><thead><tr><th>Símbolo</th><th>Tipo</th><th>Precio</th><th>Monto</th><th>Estado</th><th>Hora</th></tr></thead><tbody>' +
+        container.innerHTML = '<table class="table table-sm table-dark"><thead><tr><th>Símbolo</th><th>Tipo</th><th>Precio</th><th>Monto</th><th>Confianza</th><th>Estrategia</th><th>Estado</th><th>Contract ID</th><th>Hora</th></tr></thead><tbody>' +
             trades.map(trade => {
                 // Para operaciones finalizadas: si fue pérdida, mostrar monto en positivo
                 let displayAmount = parseFloat(trade.amount || 0);
@@ -711,7 +714,10 @@
                     <td><span class="badge ${trade.direction === 'CALL' ? 'bg-success' : 'bg-danger'}">${trade.direction}</span></td>
                     <td>$${parseFloat(trade.price || 0).toFixed(4)}</td>
                     <td class="${amountClass}"><strong>$${displayAmount.toFixed(2)}</strong></td>
+                    <td>${trade.confidence_pct != null ? (parseFloat(trade.confidence_pct).toFixed(1) + '%') : '-'}</td>
+                    <td><span class="badge bg-info">${trade.strategy || 'Desconocida'}</span></td>
                     <td><span class="badge ${trade.status === 'won' ? 'bg-success' : trade.status === 'lost' ? 'bg-danger' : 'bg-warning'}">${trade.status}</span></td>
+                    <td><code>${trade.contract_id || '-'}</code></td>
                     <td>${new Date(trade.timestamp).toLocaleTimeString()}</td>
                 </tr>
             `;

@@ -120,6 +120,8 @@ class AdaptiveFilterManager:
         self.peak_balance = None
         self.last_metrics_check = None
         self.recovery_progress = 0  # 0-100: Progreso de recuperación
+        self.pause_active = False  # Si la pausa está activa
+        self.pause_allowed_symbol = None  # Símbolo permitido durante pausa
         
         # Parámetros actuales ajustados
         self.current_parameters = AdaptiveParameters(
@@ -390,17 +392,47 @@ class AdaptiveFilterManager:
         """Obtener parámetros actuales"""
         return self.current_parameters
     
-    def should_pause_trading(self, metrics: PerformanceMetrics) -> bool:
+    def should_pause_trading(self, metrics: PerformanceMetrics, best_symbol: str = None) -> dict:
         """
         Determinar si debe pausarse el trading
         
         Pausar si:
         - Drawdown > 15% (ya en nivel mínimo de posición)
         - Racha perdedora >= 5
+        
+        Args:
+            metrics: Métricas actuales
+            best_symbol: Símbolo con mejor desempeño (para permitir durante pausa)
+        
+        Returns:
+            dict con:
+            - 'should_pause': bool - Si debe pausar
+            - 'allowed_symbol': str o None - Símbolo permitido durante pausa (el mejor)
         """
+        should_pause = False
         if metrics.drawdown_pct > self.drawdown_level_3:
-            return True
+            should_pause = True
         if metrics.losing_streak >= 5:
-            return True
-        return False
+            should_pause = True
+        
+        # Si la racha perdedora se rompió (losing_streak < 5), desactivar pausa
+        if self.pause_active and metrics.losing_streak < 5 and metrics.drawdown_pct <= self.drawdown_level_3:
+            should_pause = False
+            self.pause_active = False
+            self.pause_allowed_symbol = None
+        
+        allowed_symbol = None
+        if should_pause:
+            self.pause_active = True
+            # Usar el símbolo proporcionado (mejor desempeño)
+            allowed_symbol = best_symbol if best_symbol else None
+            self.pause_allowed_symbol = allowed_symbol
+        else:
+            self.pause_active = False
+            self.pause_allowed_symbol = None
+        
+        return {
+            'should_pause': should_pause,
+            'allowed_symbol': allowed_symbol
+        }
 

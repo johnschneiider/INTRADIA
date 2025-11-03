@@ -76,9 +76,9 @@ class Command(BaseCommand):
             stop_loss_amount = Decimal('0.00')
         
         # Aplicar controles rápidos
-        if disable_max_trades:
-            max_trades = 999999  # Prácticamente ilimitado
-            self.stdout.write(self.style.WARNING('⚠️ Límite de trades DESACTIVADO (modo pruebas)'))
+        # FORZAR ILIMITADO: sin límite de trades diarios
+        max_trades = 999999
+        self.stdout.write(self.style.WARNING('⚠️ Límite de trades DESACTIVADO (ilimitado)'))
         
         if disable_profit_target:
             profit_target = Decimal('999999.00')  # Prácticamente ilimitado
@@ -115,6 +115,7 @@ class Command(BaseCommand):
         self.stdout.write('')
         
         try:
+            recovery_mode = False
             while True:
                 # Recargar configuración desde BD en cada iteración (para aplicar cambios dinámicos)
                 try:
@@ -127,8 +128,8 @@ class Command(BaseCommand):
                     effective_profit_target_pct = config.profit_target_pct
                     effective_max_loss = config.max_loss
                     
-                    if config.disable_max_trades:
-                        effective_max_trades = 999999
+                    # FORZAR ILIMITADO: siempre sin límite
+                    effective_max_trades = 999999
                     if config.disable_profit_target:
                         effective_profit_target = Decimal('999999.00')
                         effective_profit_target_pct = 999.0
@@ -162,15 +163,12 @@ class Command(BaseCommand):
                 can_trade, reason = capital_manager.can_trade(current_balance)
                 
                 if not can_trade:
+                    # Activar modo recuperación en vez de detener
+                    recovery_mode = True
                     self.stdout.write('=' * 60)
-                    self.stdout.write(self.style.ERROR(f'🛑 TRADING DETENIDO: {reason}'))
-                    self.stdout.write('')
-                    self.stdout.write(self.style.SUCCESS(capital_manager.get_status_message(current_balance)))
-                    self.stdout.write('')
-                    self.stdout.write(self.style.SUCCESS('💡 El trading se reanudará mañana a las 00:00'))
-                    self.stdout.write(self.style.SUCCESS('💡 Para continuar manualmente, reinicia el comando'))
+                    self.stdout.write(self.style.WARNING(f'🟡 MODO RECUPERACIÓN: {reason}'))
+                    self.stdout.write(self.style.SUCCESS('Operando solo con símbolos fuertes y mayor confianza hasta recuperarse'))
                     self.stdout.write('=' * 60)
-                    break  # Salir del loop
                 
                 # Mostrar estado del Capital Manager
                 status_msg = capital_manager.get_status_message(current_balance)
@@ -189,6 +187,52 @@ class Command(BaseCommand):
                 ]
                 symbols_list = [s for s in list(symbols) if s not in excluded_symbols]
                 
+                # PRIORIZACIÓN DINÁMICA POR RENDIMIENTO (última hora)
+                def _compute_symbol_scores(candidates):
+                    from monitoring.models import OrderAudit
+                    horizon = timezone.now() - timedelta(hours=1)
+                    base_scores = {}
+                    # Pre-cargar trades por símbolo
+                    trades = OrderAudit.objects.filter(timestamp__gte=horizon, symbol__in=candidates, status__in=['won','lost'])
+                    by_symbol = {}
+                    for t in trades:
+                        by_symbol.setdefault(t.symbol, []).append(t)
+                    # Calcular score: 0..1 combinando winrate y pnl normalizado
+                    # pnl_norm: tanh(pnl/5) mapea ganancias moderadas hacia ±1 suavemente
+                    import math
+                    for s in candidates:
+                        ts = by_symbol.get(s, [])
+                        if not ts:
+                            base_scores[s] = 0.5  # neutral si no hay datos
+                            continue
+                        wins = sum(1 for x in ts if x.status == 'won')
+                        losses = sum(1 for x in ts if x.status == 'lost')
+                        total = wins + losses
+                        winrate = (wins/total) if total > 0 else 0.5
+                        pnl = sum(float(x.pnl or 0) for x in ts)
+                        pnl_norm = math.tanh(pnl / 5.0)
+                        # mezcla ponderada
+                        score = 0.7*winrate + 0.3*((pnl_norm+1)/2)  # pnl_norm (-1..1) -> (0..1)
+                        base_scores[s] = max(0.0, min(1.0, score))
+                    return base_scores
+
+                symbol_scores = _compute_symbol_scores(list(symbols_list))
+                # Reordenar por score desc
+                symbols_list = sorted(symbols_list, key=lambda s: symbol_scores.get(s, 0.5), reverse=True)
+
+                # En modo recuperación: concentrarse en los mejores
+                if recovery_mode:
+                    # filtrar a ganadores (score>=0.60) y limitar a top 12
+                    winners = [s for s in symbols_list if symbol_scores.get(s, 0) >= 0.60]
+                    symbols_list = (winners or symbols_list)[:12]
+
+                # Publicar prioridades al loop para intervalos dinámicos
+                try:
+                    loop.symbol_priorities = symbol_scores
+                    loop.recovery_mode = recovery_mode
+                except Exception:
+                    pass
+
                 self.stdout.write('=' * 60)
                 self.stdout.write(f'📊 Símbolos: {symbols_list}')
                 self.stdout.write('')
@@ -208,6 +252,8 @@ class Command(BaseCommand):
                         trailing_stop_distance_pct=getattr(config, 'trailing_stop_distance_pct', 1.0),
                         min_profit_for_trailing_pct=getattr(config, 'min_profit_for_trailing_pct', 0.5),
                         emergency_drawdown_threshold_pct=getattr(config, 'emergency_drawdown_threshold_pct', 10.0),
+                        # Permitir alta simultaneidad
+                        max_active_positions=max(50, getattr(config, 'max_active_positions', 10)),
                     )
                     monitor = PositionMonitor(risk_protection)
                     position_actions = monitor.monitor_active_positions()
@@ -223,6 +269,7 @@ class Command(BaseCommand):
                                 try:
                                     if loop.capital_manager:
                                         trade_won = action.get('status') == 'won'
+                                        trade_symbol = action.get('symbol')
                                         # Obtener monto del trade desde action si está disponible
                                         trade_amount = action.get('amount')
                                         if trade_amount:
@@ -230,6 +277,29 @@ class Command(BaseCommand):
                                         else:
                                             trade_amount = None
                                         loop.capital_manager.update_martingale_level(trade_won, trade_amount)
+                                        
+                                        # Si es un trade ganador del símbolo permitido durante pausa, romper la pausa
+                                        if trade_won and loop.adaptive_filter_manager.pause_active:
+                                            allowed_symbol = loop.adaptive_filter_manager.pause_allowed_symbol
+                                            if trade_symbol == allowed_symbol:
+                                                # Recalcular métricas para verificar si la racha se rompió
+                                                try:
+                                                    balance_info = loop._client.get_balance() if loop._client else None
+                                                    if isinstance(balance_info, dict):
+                                                        current_balance = Decimal(str(balance_info.get('balance', 0)))
+                                                    else:
+                                                        current_balance = Decimal(str(balance_info)) if balance_info else Decimal('0')
+                                                    
+                                                    new_metrics = loop.adaptive_filter_manager.calculate_metrics(current_balance)
+                                                    # Si la racha perdedora se rompió, desactivar pausa
+                                                    if new_metrics.losing_streak < 5:
+                                                        loop.adaptive_filter_manager.pause_active = False
+                                                        loop.adaptive_filter_manager.pause_allowed_symbol = None
+                                                        self.stdout.write(
+                                                            self.style.SUCCESS(f'✅ Pausa rota: {trade_symbol} ganó (Racha: {new_metrics.losing_streak})')
+                                                        )
+                                                except Exception:
+                                                    pass  # No detener si falla verificación
                                 except Exception:
                                     pass  # No detener si falla actualización de martingala
                     
@@ -248,6 +318,31 @@ class Command(BaseCommand):
                             for trade in completed_trades:
                                 # Actualizar martingala por cada trade completado
                                 trade_won = trade.status == 'won'
+                                trade_symbol = trade.symbol
+                                
+                                # Si es un trade ganador del símbolo permitido durante pausa, verificar si rompe la pausa
+                                if trade_won and loop.adaptive_filter_manager.pause_active:
+                                    allowed_symbol = loop.adaptive_filter_manager.pause_allowed_symbol
+                                    if trade_symbol == allowed_symbol:
+                                        # Recalcular métricas para verificar si la racha se rompió
+                                        try:
+                                            balance_info = loop._client.get_balance() if loop._client else None
+                                            if isinstance(balance_info, dict):
+                                                current_balance = Decimal(str(balance_info.get('balance', 0)))
+                                            else:
+                                                current_balance = Decimal(str(balance_info)) if balance_info else Decimal('0')
+                                            
+                                            new_metrics = loop.adaptive_filter_manager.calculate_metrics(current_balance)
+                                            # Si la racha perdedora se rompió, desactivar pausa
+                                            if new_metrics.losing_streak < 5:
+                                                loop.adaptive_filter_manager.pause_active = False
+                                                loop.adaptive_filter_manager.pause_allowed_symbol = None
+                                                self.stdout.write(
+                                                    self.style.SUCCESS(f'✅ Pausa rota: {trade_symbol} ganó (Racha: {new_metrics.losing_streak})')
+                                                )
+                                        except Exception:
+                                            pass  # No detener si falla verificación
+                                
                                 # Obtener monto del trade desde request_payload o response_payload
                                 trade_amount = None
                                 if trade.request_payload:
@@ -371,11 +466,9 @@ class Command(BaseCommand):
                 can_trade, reason = capital_manager.can_trade(current_balance)
                 
                 if not can_trade:
-                    self.stdout.write('=' * 60)
-                    self.stdout.write(self.style.ERROR(f'🛑 TRADING DETENIDO: {reason}'))
-                    self.stdout.write(self.style.SUCCESS(capital_manager.get_status_message(current_balance)))
-                    self.stdout.write('=' * 60)
-                    break
+                    # Mantenerse en modo recuperación sin detener el loop
+                    recovery_mode = True
+                    self.stdout.write(self.style.WARNING(f'🟡 MODO RECUPERACIÓN (continúa): {reason}'))
                 
                 self.stdout.write('=' * 60)
                 self.stdout.write('')
@@ -388,20 +481,22 @@ class Command(BaseCommand):
             return
     
     def _check_pending_trades(self, client):
-        """Verificar operaciones pendientes y actualizar estado"""
+        """Verificar operaciones abiertas y actualizar su estado aunque se haya perdido la suscripción."""
         try:
             # Operaciones pendientes de la última hora
             since = timezone.now() - timedelta(hours=1)
             pending_trades = OrderAudit.objects.filter(
-                status='pending',
+                status__in=['pending', 'active', 'open'],
                 timestamp__gte=since
             )
             
             for trade in pending_trades:
-                # Solo verificar si pasaron al menos 30 segundos
+                # Tiempo transcurrido desde la apertura
                 elapsed = (timezone.now() - trade.timestamp).total_seconds()
-                
-                if elapsed < 30:
+                # Duración esperada por tipo de símbolo (binarias 30s, forex 60s)
+                expected_duration = 60 if str(trade.symbol).startswith('frx') else 30
+                # Gracia adicional para reconexiones
+                if elapsed < max(30, expected_duration):
                     continue
                 
                 # Obtener contract_id
@@ -412,14 +507,20 @@ class Command(BaseCommand):
                 if not contract_id:
                     continue
                 
-                # Consultar estado
+                # Consultar estado (reintentos breves para cubrir reconexiones)
                 try:
-                    contract_info = client.get_open_contract_info(contract_id)
+                    attempts = 3
+                    contract_info = None
+                    for _ in range(attempts):
+                        contract_info = client.get_open_contract_info(contract_id)
+                        if contract_info and not contract_info.get('error'):
+                            break
+                        time.sleep(1.0)
                     
                     if contract_info.get('error'):
                         continue
                     
-                    # Si is_sold=True, el contrato se cerró
+                    # Si is_sold=True, el contrato se cerró en Deriv
                     if contract_info.get('is_sold'):
                         new_status = 'won' if contract_info.get('profit', 0) > 0 else 'lost'
                         trade.status = new_status
@@ -429,7 +530,7 @@ class Command(BaseCommand):
                         if contract_info.get('sell_price'):
                             trade.exit_price = float(contract_info['sell_price'])
                         
-                        trade.save()
+                        trade.save(update_fields=['status', 'pnl', 'exit_price'])
                         
                         status_emoji = "✅" if new_status == 'won' else "❌"
                         self.stdout.write(
@@ -437,8 +538,8 @@ class Command(BaseCommand):
                                 f'  {status_emoji} {trade.symbol} {trade.action.upper()}: {new_status.upper()} - P&L: ${contract_info.get("profit", 0):.2f}'
                             )
                         )
-                except:
-                    pass  # Ignorar errores
+                except Exception:
+                    pass  # Ignorar errores puntuales
                     
         except Exception as e:
             pass  # Error silencioso

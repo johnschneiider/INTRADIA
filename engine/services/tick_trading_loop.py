@@ -15,6 +15,8 @@ from market.models import Tick
 
 from engine.services.tick_based_strategy import TickBasedStrategy, TrendSignal
 from engine.services.statistical_strategy import StatisticalStrategy, StatisticalSignal
+from engine.services.ema200_extrema_strategy import EMA200ExtremaStrategy, EMAExtremaSignal
+from engine.services.momentum_reversal_strategy import MomentumReversalStrategy, MomentumReversalSignal
 from engine.services.execution_gateway import place_order_through_gateway
 from engine.services.advanced_capital_manager import AdvancedCapitalManager
 from engine.services.risk_protection import RiskProtectionSystem
@@ -47,6 +49,22 @@ class TickTradingLoop:
         self.last_trade_time = {}
         self.min_trade_interval = timedelta(seconds=60)  # Mínimo 60 segundos entre entradas del mismo símbolo
         self.use_statistical = use_statistical
+        # Segunda estrategia (EMA + extremos) configurada a EMA100 como solicitaste
+        self.strategy_ema = EMA200ExtremaStrategy(lookback_ticks=200, extrema_window=60, ema_period=100)
+        # Tercera estrategia (Tick-Based) para comparar y medir
+        self.strategy_ticks = TickBasedStrategy(
+            ticks_to_analyze=40,
+            trend_threshold_pct=55.0,      # más laxo
+            force_threshold_pct=0.0006     # más laxo
+        )
+        # Cuarta estrategia (Reversión por Fatiga y Ruptura)
+        self.strategy_reversal = MomentumReversalStrategy(
+            fatigue_threshold=5,
+            momentum_extreme_threshold=0.05,
+            consolidation_breakout_atr_ratio=2.0,
+            short_timeframe=15,
+            long_timeframe=60
+        )
         
         # Inicializar sistemas de gestión de capital y protección (se cargarán desde BD al procesar)
         self.capital_manager = None
@@ -57,6 +75,12 @@ class TickTradingLoop:
         # Cache de balance para evitar rate limiting
         from engine.services.balance_cache import BalanceCache
         self._balance_cache = BalanceCache(ttl_seconds=10)
+        # Prioridades por símbolo (0..1) inyectadas por el loop
+        self.symbol_priorities: Dict[str, float] = {}
+        # Flag de modo recuperación (priorizar alta confianza y reducir tamaño)
+        self.recovery_mode: bool = False
+        # Pacing: última ejecución aceptada
+        self._last_executed_time = None
     
     def _initialize_capital_systems(self):
         """Inicializar sistemas de capital y riesgo desde configuración"""
@@ -245,14 +269,49 @@ class TickTradingLoop:
             if isinstance(self.strategy, StatisticalStrategy):
                 self.strategy.update_adaptive_parameters(adaptive_params)
             
-            # Verificar si debe pausarse el trading
+            # Verificar si debe pausarse el trading (modo pausa selectiva)
             metrics = self.adaptive_filter_manager.calculate_metrics(current_balance)
-            if self.adaptive_filter_manager.should_pause_trading(metrics):
-                return {
-                    'status': 'rejected',
-                    'reason': 'adaptive_pause',
-                    'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
-                }
+            
+            # Determinar el símbolo con mejor desempeño (si hay prioridades)
+            best_symbol = None
+            if self.symbol_priorities:
+                best_symbol = max(self.symbol_priorities.items(), key=lambda x: x[1])[0]
+            
+            # Verificar pausa con el mejor símbolo
+            pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=best_symbol)
+            
+            if pause_info['should_pause']:
+                # Durante pausa: solo permitir el símbolo con mejor desempeño
+                if not best_symbol:
+                    # Si no hay prioridades, rechazar todo
+                    return {
+                        'status': 'rejected',
+                        'reason': 'adaptive_pause',
+                        'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
+                    }
+                
+                # Solo permitir este símbolo durante la pausa
+                if symbol != best_symbol:
+                    return {
+                        'status': 'rejected',
+                        'reason': 'adaptive_pause',
+                        'message': f'⏸️ Pausa activa: Solo {best_symbol} puede operar (score: {self.symbol_priorities.get(best_symbol, 0):.2f})'
+                    }
+                
+                # Si es el mejor símbolo, permitir operar pero con condiciones muy estrictas
+                # (ya está en modo conservador, así que los filtros son más estrictos)
+                # Log para indicar que estamos en modo pausa selectiva
+                print(f"🔄 Modo Pausa Selectiva: Operando solo {best_symbol} para romper racha perdedora ({metrics.losing_streak})")
+            
+            # MODO CONSERVADOR LIGERO si hay racha perdedora o drawdown elevados
+            conservative_mode = False
+            try:
+                if getattr(metrics, 'losing_streak', 0) >= 3:
+                    conservative_mode = True
+                if getattr(metrics, 'drawdown_pct', 0.0) >= 0.05:
+                    conservative_mode = True
+            except Exception:
+                conservative_mode = False
             
             # 1. VERIFICACIÓN DE CAPITAL MANAGER (metas diarias, drawdown, etc.)
             # Actualizar max_trades dinámicamente si disable_max_trades cambió
@@ -268,10 +327,14 @@ class TickTradingLoop:
             
             can_trade, capital_reason = self.capital_manager.can_trade(current_balance)
             if not can_trade:
-                return {
-                    'status': 'rejected',
-                    'reason': f'capital_manager: {capital_reason}'
-                }
+                # En modo recuperación, no bloquear; seguir con filtros más estrictos
+                if getattr(self, 'recovery_mode', False):
+                    pass
+                else:
+                    return {
+                        'status': 'rejected',
+                        'reason': f'capital_manager: {capital_reason}'
+                    }
             
             # 2. VERIFICACIÓN DE EMERGENCIA (caídas súbitas)
             if self._enable_emergency_stop:
@@ -293,15 +356,61 @@ class TickTradingLoop:
             now = timezone.now()
             last_trade = self.last_trade_time.get(symbol)
             
-            if last_trade and (now - last_trade) < self.min_trade_interval:
+            # Intervalo dinámico por símbolo según prioridad (mejor score => menor intervalo)
+            score = self.symbol_priorities.get(symbol, 0.5)
+            if score >= 0.65:
+                sym_interval = timedelta(seconds=15)
+            elif score <= 0.45:
+                sym_interval = timedelta(seconds=90)
+            else:
+                sym_interval = timedelta(seconds=30)
+
+            if last_trade and (now - last_trade) < sym_interval:
                 return {
                     'status': 'waiting',
                     'reason': 'interval_limit',
-                    'next_allowed': (last_trade + self.min_trade_interval).isoformat()
+                    'next_allowed': (last_trade + sym_interval).isoformat()
                 }
             
-            # Analizar símbolo
-            signal = self.strategy.analyze_symbol(symbol)
+            # Analizar símbolo con todas las estrategias
+            signal_primary = self.strategy.analyze_symbol(symbol)
+            signal_secondary = self.strategy_ema.analyze_symbol(symbol)
+            signal_ticks = self.strategy_ticks.analyze_symbol(symbol)
+            signal_reversal = self.strategy_reversal.analyze_symbol(symbol)
+            
+            # Elegir la mejor por confianza si todas existen; si solo una existe, usar esa
+            signal = None
+            strategy_origin = 'unknown'
+            
+            if signal_primary and hasattr(signal_primary, 'confidence'):
+                signal = signal_primary
+                strategy_origin = 'statistical_hybrid'
+            
+            if signal_secondary and hasattr(signal_secondary, 'confidence'):
+                if (signal is None) or (getattr(signal_secondary, 'confidence', 0) > getattr(signal, 'confidence', 0)):
+                    signal = signal_secondary
+                    strategy_origin = 'ema200_extrema'
+            
+            # Integrar señal Tick-Based usando proxy de confianza
+            if signal_ticks and hasattr(signal_ticks, 'force_pct'):
+                try:
+                    proxy_conf = max(0.0, min(1.0, float(signal_ticks.force_pct) / 100.0))
+                except Exception:
+                    proxy_conf = 0.0
+                setattr(signal_ticks, 'confidence', proxy_conf)
+                if (signal is None) or (proxy_conf > getattr(signal, 'confidence', 0)):
+                    signal = signal_ticks
+                    strategy_origin = 'tick_based'
+            
+            # Integrar señal de Reversión (cuarta estrategia)
+            if signal_reversal and hasattr(signal_reversal, 'confidence'):
+                if (signal is None) or (getattr(signal_reversal, 'confidence', 0) > getattr(signal, 'confidence', 0)):
+                    signal = signal_reversal
+                    strategy_origin = 'momentum_reversal'
+            
+            # Marcar origen de estrategia seleccionado (para trazabilidad)
+            if signal is not None:
+                setattr(signal, 'strategy_origin', strategy_origin)
             
             if not signal:
                 # No hay señal - omitir silenciosamente (no registrar)
@@ -311,8 +420,32 @@ class TickTradingLoop:
                     'message': f'Símbolo {symbol} sin señal clara, omitido'
                 }
             
-            # Verificar si debe entrar
-            if not self.strategy.should_enter_trade(signal):
+            # Verificar si debe entrar (validación genérica basada en confianza)
+            should_enter = False
+            if hasattr(self.strategy, 'should_enter_trade'):
+                try:
+                    should_enter = self.strategy.should_enter_trade(signal)
+                except Exception:
+                    # Si la estrategia no puede validar, usar validación genérica
+                    should_enter = False
+            
+            # Validación genérica para señales con confidence
+            if not should_enter and hasattr(signal, 'confidence'):
+                # Umbral mínimo de confianza (ajustable según estrategia)
+                min_confidence = 0.50  # Base
+                if strategy_origin == 'momentum_reversal':
+                    min_confidence = 0.50  # La estrategia de reversión ya filtra en analyze_symbol
+                elif strategy_origin == 'ema200_extrema':
+                    min_confidence = 0.60
+                elif strategy_origin == 'tick_based':
+                    min_confidence = 0.40  # Más laxo para ticks
+                else:
+                    min_confidence = 0.50
+                
+                if signal.confidence >= min_confidence:
+                    should_enter = True
+            
+            if not should_enter:
                 # Insuficiente confianza - omitir silenciosamente (no registrar)
                 if hasattr(signal, 'force_pct'):
                     reason_data = {'force_pct': signal.force_pct}
@@ -328,6 +461,54 @@ class TickTradingLoop:
                     **reason_data
                 }
             
+            # Endurecimiento ligero en modo conservador o recuperación: exigir confianza algo mayor
+            try:
+                if (conservative_mode or getattr(self, 'recovery_mode', False)) and hasattr(signal, 'confidence') and signal.confidence is not None:
+                    # Base normal 0.62; en recuperación 0.58
+                    if getattr(self, 'recovery_mode', False):
+                        min_conf = 0.58
+                    else:
+                        min_conf = 0.62
+                    # Pacing: si no hubo ejecutados en 10 minutos, relajar -0.04 temporal
+                    try:
+                        if self._last_executed_time is None or (timezone.now() - self._last_executed_time).total_seconds() > 600:
+                            min_conf = max(0.54, min_conf - 0.04)
+                    except Exception:
+                        pass
+                    if float(signal.confidence) < min_conf:
+                        return {
+                            'status': 'skipped',
+                            'reason': 'conservative_confidence',
+                            'message': f'Confianza {signal.confidence:.2f} < mínimo {min_conf:.2f} (filtro adaptativo)'
+                        }
+            except Exception:
+                pass
+
+            # Control de volatilidad (ATR) por clase de activo para evitar extremos
+            try:
+                atr_ratio_chk = getattr(signal, 'atr_ratio', None)
+                if atr_ratio_chk is not None:
+                    if symbol.startswith('frx'):
+                        low, high = (0.00015, 0.0220)
+                    else:
+                        low, high = (0.0015, 0.0550)
+                    # En recuperación ya no estrechamos más; usamos rangos ampliados
+                    if not (low <= float(atr_ratio_chk) <= high):
+                        # Si la confianza es muy alta, permitir pero reducimos stake posteriormente
+                        high_conf_allow = hasattr(signal, 'confidence') and float(getattr(signal, 'confidence', 0)) >= 0.75
+                        if high_conf_allow:
+                            pass
+                        else:
+                            return {
+                                'status': 'skipped',
+                                'reason': 'volatility_out_of_range',
+                                'message': f'ATR% fuera de rango ({atr_ratio_chk:.4f} no está entre {low:.4f} y {high:.4f})'
+                            }
+            except Exception:
+                pass
+            
+            # Sin límite de trades simultáneos: permitir múltiples entradas si cumplen condiciones
+
             # 3. CALCULAR TAMAÑO DE POSICIÓN USANDO ADVANCED CAPITAL MANAGER
             # Obtener precio actual y ATR
             latest_tick = Tick.objects.filter(symbol=symbol).order_by('-timestamp').first()
@@ -348,12 +529,11 @@ class TickTradingLoop:
             base_risk = position_size_result.risk_amount
 
             # 4. APLICAR AJUSTES SEGÚN ESTRATEGIA
-            if (self.capital_manager and 
-                (self.capital_manager.enable_martingale or 
-                 self.capital_manager.position_sizing_method == 'martingale')):
-                # Martingala: usar EXACTAMENTE el monto calculado por el manager
-                # (pérdidas_acumuladas / 0.9), sin reducciones adaptativas ni protecciones
+            # MARTINGALA DESACTIVADA: forzar martingale_active=False
+            martingale_active = False
+            if martingale_active:
                 final_risk = base_risk
+                protection_applied = None
             else:
                 # Modo normal: aplicar multiplicador adaptativo y protecciones
                 position_multiplier = adaptive_params.position_size_multiplier
@@ -378,11 +558,29 @@ class TickTradingLoop:
                 
                 # Usar tamaño ajustado si fue modificado por protecciones
                 final_risk = risk_check.adjusted_size if risk_check.adjusted_size else adjusted_base_risk
+                protection_applied = risk_check.protection_applied
             
-            # Convertir riesgo a monto de contrato (para opciones binarias)
-            # Simplificado: asumimos que cada $1 de stake = $1 de riesgo potencial máximo
-            # En realidad debería calcularse según payout, pero simplificamos
-            amount = float(final_risk)
+            # Monto dinámico por símbolo según rendimiento horario (score 0..1 -> $0.35..$1.00)
+            score = self.symbol_priorities.get(symbol, 0.5)
+            amount = 0.35 + (0.65 * float(score))
+            amount = round(amount, 2)
+
+            # En recuperación: bajar un 20% adicional el tamaño, respetando $0.35
+            if getattr(self, 'recovery_mode', False):
+                amount = max(0.35, round(amount * 0.8, 2))
+
+            # Si ATR fuera de rango pero se permitió por alta confianza, reducir stake extra 30%
+            try:
+                atr_ratio_chk = getattr(signal, 'atr_ratio', None)
+                if atr_ratio_chk is not None:
+                    if symbol.startswith('frx'):
+                        low, high = (0.00015, 0.0220)
+                    else:
+                        low, high = (0.0015, 0.0550)
+                    if not (low <= float(atr_ratio_chk) <= high) and float(getattr(signal, 'confidence', 0)) >= 0.75:
+                        amount = max(0.35, round(amount * 0.8, 2))
+            except Exception:
+                pass
             
             # Obtener parámetros de la operación - DURACIÓN DINÁMICA ADAPTATIVA
             # Base por clase de activo + factor por volatilidad (ATR ratio)
@@ -405,21 +603,53 @@ class TickTradingLoop:
             # Elegir bucket permitido más cercano
             duration = min(allowed, key=lambda d: abs(d - raw_duration))
             
-            trade_params = self.strategy.get_trade_params(signal, duration=duration)
+            # Obtener parámetros de trade (genérico para todas las estrategias)
+            try:
+                if hasattr(self.strategy, 'get_trade_params'):
+                    trade_params = self.strategy.get_trade_params(signal, duration=duration)
+                else:
+                    # Extraer parámetros directamente de la señal
+                    entry_price = getattr(signal, 'entry_price', None)
+                    if entry_price is None:
+                        # Obtener último precio del símbolo
+                        last_tick = Tick.objects.filter(symbol=symbol).order_by('-timestamp').first()
+                        if last_tick:
+                            entry_price = Decimal(str(last_tick.price))
+                        else:
+                            entry_price = Decimal('0')
+                    
+                    trade_params = {
+                        'direction': signal.direction,
+                        'entry_price': float(entry_price),
+                        'duration': duration,
+                        'basis': 'stake',
+                        'amount': 1.0
+                    }
+                    # Agregar campos adicionales si existen
+                    if hasattr(signal, 'confidence'):
+                        trade_params['confidence'] = signal.confidence
+                    if hasattr(signal, 'signal_type'):
+                        trade_params['signal_type'] = signal.signal_type
+            except Exception as e:
+                # Fallback: construir parámetros básicos
+                entry_price = getattr(signal, 'entry_price', None)
+                if entry_price is None:
+                    last_tick = Tick.objects.filter(symbol=symbol).order_by('-timestamp').first()
+                    entry_price = Decimal(str(last_tick.price)) if last_tick else Decimal('0')
+                
+                trade_params = {
+                    'direction': signal.direction,
+                    'entry_price': float(entry_price),
+                    'duration': duration,
+                    'basis': 'stake',
+                    'amount': 1.0
+                }
             
             # Convertir dirección a lado (buy/sell)
             side = 'buy' if signal.direction == 'CALL' else 'sell'
             
-            # Ajustar monto según estrategia (martingala puede usar $0.10)
-            # Si está usando martingala, permitir montos menores a $1.00
-            if (self.capital_manager and 
-                (self.capital_manager.enable_martingale or 
-                 self.capital_manager.position_sizing_method == 'martingale')):
-                # Martingala: permitir montos desde $0.10
-                amount = max(0.10, amount)
-            else:
-                # Sin martingala: mínimo $1.00
-                amount = max(1.0, amount)
+            # Asegurar mínimo operativo local $0.35 (Deriv puede pedir >$0.35 y se reintenta con el mínimo exigido)
+            amount = max(0.35, amount)
             
             amount = round(amount, 2)  # Deriv requiere máximo 2 decimales
             
@@ -440,14 +670,15 @@ class TickTradingLoop:
                 symbol=symbol,
                 side=side,
                 amount=amount,
-                duration=duration
+                duration=duration,
+                martingale_active=martingale_active
             )
             
             # Actualizar estado del capital manager después de trade
             if result.get('accepted'):
                 # El trade se registró como pending, la actualización de martingala
                 # se hará cuando el contrato expire y se actualice el status
-                pass
+                self._last_executed_time = timezone.now()
             
             # Guardar información de riesgo en el resultado para logging
             if result.get('accepted'):
@@ -536,8 +767,16 @@ class TickTradingLoop:
                 signal_info['force_pct'] = signal.force_pct
             if hasattr(signal, 'confidence'):
                 signal_info['confidence'] = signal.confidence
-                signal_info['signal_type'] = signal.signal_type
-                signal_info['z_score'] = signal.z_score
+                # Campos específicos según estrategia
+                if hasattr(signal, 'signal_type'):
+                    signal_info['signal_type'] = signal.signal_type
+                if hasattr(signal, 'z_score'):
+                    signal_info['z_score'] = signal.z_score
+                if isinstance(signal, EMAExtremaSignal):
+                    signal_info['signal_type'] = 'ema200_extrema'
+                    signal_info['ema200'] = str(signal.ema200)
+                    signal_info['recent_high'] = str(signal.recent_high)
+                    signal_info['recent_low'] = str(signal.recent_low)
             if hasattr(signal, 'upward_ticks_pct'):
                 signal_info['upward_pct'] = signal.upward_ticks_pct
             
@@ -550,7 +789,7 @@ class TickTradingLoop:
                     'risk_amount': float(final_risk),
                     'method': position_size_result.method_used,
                     'confidence': position_size_result.confidence,
-                    'protections_applied': risk_check.protection_applied
+                    'protections_applied': protection_applied
                 }
             }
             
@@ -560,7 +799,7 @@ class TickTradingLoop:
                 'error': str(e)
             }
     
-    def place_binary_option(self, symbol: str, side: str, amount: float, duration: int) -> Dict[str, Any]:
+    def place_binary_option(self, symbol: str, side: str, amount: float, duration: int, martingale_active: bool = False) -> Dict[str, Any]:
         """
         Colocar orden de opción binaria en Deriv
         
@@ -618,9 +857,17 @@ class TickTradingLoop:
                 config = CapitalConfig.get_active()
                 
                 # Mínimo
-                if amount < config.min_amount_per_trade:
-                    amount = config.min_amount_per_trade
-                    amount = round(amount, 2)
+                if martingale_active:
+                    # En martingala respetamos mínimos de $0.10
+                    min_allowed = float(getattr(config, 'martingale_base_amount', 0.10))
+                    if amount < min_allowed:
+                        amount = min_allowed
+                        amount = round(amount, 2)
+                else:
+                    # Permitir mínimos desde $0.35 para la asignación dinámica
+                    if amount < config.min_amount_per_trade:
+                        amount = max(float(amount), 0.35)
+                        amount = round(amount, 2)
                 
                 # Máximo
                 if amount > config.max_amount_absolute:
@@ -674,16 +921,58 @@ class TickTradingLoop:
                         error_code = error_info.get('code', '') if isinstance(error_info, dict) else ''
                         error_message = error_info.get('message', '') if isinstance(error_info, dict) else str(error_info)
                         
-                        # Si el error es de disponibilidad, OMITIR (no rechazar, no registrar)
+                        # Si el error es de disponibilidad, intentar reintento por mínimo requerido si aplica
                         if error_code in ['InvalidSymbol', 'NotAvailable', 'InvalidOfferings', 'PermissionDenied', 'OfferingsValidationError', 'ContractCreationFailure']:
-                            print(f"  ⏭️ {symbol}: Símbolo no disponible, omitiendo silenciosamente | {error_code}: {error_message}")
-                            return {
-                                'accepted': False,
-                                'reason': 'not_available',  # Código especial para omitir
-                                'error_code': error_code,
-                                'error_message': error_message,
-                                'skip_record': True  # No registrar en BD
-                            }
+                            # Reintento único si el mensaje trae "at least X" (mínimo de stake)
+                            min_required = None
+                            try:
+                                import re
+                                m = re.search(r"at least\s*([0-9]+(?:\.[0-9]+)?)", error_message)
+                                if m:
+                                    min_required = float(m.group(1))
+                            except Exception:
+                                min_required = None
+                            
+                            if min_required is not None:
+                                retry_amount = max(float(amount), float(min_required))
+                                retry_amount = round(retry_amount, 2)
+                                print(f"  🔁 {symbol}: Reintentando con mínimo requerido ${retry_amount:.2f} (anterior ${float(amount):.2f})")
+                                amount = retry_amount
+                                # Reintenta proposal UNA vez con el nuevo amount
+                                try:
+                                    client.response_event.clear()
+                                    proposal_req['amount'] = float(amount)
+                                    client.ws.send(json.dumps(proposal_req))
+                                    if client.response_event.wait(timeout=5):
+                                        proposal_data = client.response_data
+                                        if proposal_data.get("error"):
+                                            # Si vuelve a fallar, omitir
+                                            return {
+                                                'accepted': False,
+                                                'reason': 'not_available',
+                                                'error_code': error_code,
+                                                'error_message': error_message,
+                                                'skip_record': True
+                                            }
+                                        else:
+                                            proposal = proposal_data.get("proposal", {})
+                                            ask_price = proposal.get('ask_price', float(amount))
+                                            ask_price = round(float(ask_price), 2)
+                                            print(f"  💰 {symbol}: Ask price (reintento) ${ask_price:.2f}")
+                                    else:
+                                        # Timeout reintento: usar amount como price
+                                        ask_price = float(amount)
+                                except Exception:
+                                    ask_price = float(amount)
+                            else:
+                                print(f"  ⏭️ {symbol}: Símbolo no disponible, omitiendo silenciosamente | {error_code}: {error_message}")
+                                return {
+                                    'accepted': False,
+                                    'reason': 'not_available',  # Código especial para omitir
+                                    'error_code': error_code,
+                                    'error_message': error_message,
+                                    'skip_record': True  # No registrar en BD
+                                }
                         # Para otros errores, intentar igual con amount como price
                         ask_price = float(amount)
                         print(f"  ⚠️ {symbol}: Error en proposal ({error_code}) pero continuando con amount como price")
@@ -860,7 +1149,19 @@ class TickTradingLoop:
             }
             
             # Agregar campos específicos según el tipo de señal
-            if hasattr(signal, 'force_pct'):
+            # Primero verificar si es EMAExtremaSignal (estrategia 2)
+            from engine.services.ema200_extrema_strategy import EMAExtremaSignal
+            if isinstance(signal, EMAExtremaSignal):
+                # EMA200ExtremaStrategy (estrategia 2)
+                request_payload.update({
+                    'confidence': signal.confidence,
+                    'ema200': str(signal.ema200),
+                    'recent_high': str(signal.recent_high),
+                    'recent_low': str(signal.recent_low),
+                    'atr_ratio': signal.atr_ratio,
+                    'strategy': 'ema200_extrema'
+                })
+            elif hasattr(signal, 'force_pct'):
                 # TrendSignal (estrategia antigua)
                 request_payload.update({
                     'force_pct': signal.force_pct,
@@ -868,7 +1169,7 @@ class TickTradingLoop:
                     'strategy': 'tick_based'
                 })
             elif hasattr(signal, 'confidence'):
-                # StatisticalSignal (nueva estrategia)
+                # StatisticalSignal (estrategia 1)
                 request_payload.update({
                     'confidence': signal.confidence,
                     'signal_type': signal.signal_type,
@@ -878,9 +1179,55 @@ class TickTradingLoop:
                     'strategy': 'statistical_hybrid'
                 })
             
+            # Adjuntar estrategia si viene marcada por el caller
+            try:
+                origin = getattr(signal, 'strategy_origin', None)
+                if origin and isinstance(origin, str):
+                    request_payload['strategy'] = origin
+                    
+                    # Guardar campos adicionales según la estrategia
+                    if origin == 'momentum_reversal' and isinstance(signal, MomentumReversalSignal):
+                        request_payload['fatigue_count'] = signal.fatigue_count
+                        request_payload['momentum_extreme'] = signal.momentum_extreme
+                        request_payload['divergence_score'] = signal.divergence_score
+                        request_payload['signal_type'] = signal.signal_type
+            except Exception:
+                pass
+
             # Agregar información de posición sizing
             if position_size_info:
                 request_payload['position_sizing'] = position_size_info
+
+            # Asegurar que SIEMPRE haya una confianza presente en el payload
+            calculated_confidence = None
+            try:
+                # 1) Preferir confianza de la señal estadística
+                if hasattr(signal, 'confidence') and signal.confidence is not None:
+                    calculated_confidence = float(signal.confidence)
+                # 2) Luego, confianza calculada por el position sizing (si existe)
+                elif position_size_info and position_size_info.get('confidence') is not None:
+                    calculated_confidence = float(position_size_info.get('confidence'))
+                # 3) Derivar proxy para estrategia tick-based usando force_pct (0-100 → 0-1)
+                elif hasattr(signal, 'force_pct') and signal.force_pct is not None:
+                    try:
+                        fp = float(signal.force_pct)
+                        calculated_confidence = max(0.0, min(1.0, fp / 100.0))
+                    except Exception:
+                        calculated_confidence = None
+            except Exception:
+                calculated_confidence = None
+
+            # 4) Fallback conservador
+            if calculated_confidence is None:
+                calculated_confidence = 0.5
+
+            # Guardar confianza como parte del payload principal y dentro de position_sizing
+            request_payload['confidence'] = calculated_confidence
+            if position_size_info:
+                if request_payload.get('position_sizing') is None:
+                    request_payload['position_sizing'] = {}
+                if request_payload['position_sizing'].get('confidence') is None:
+                    request_payload['position_sizing']['confidence'] = calculated_confidence
             
             # Agregar información de riesgo al response payload
             response_payload = result.copy()

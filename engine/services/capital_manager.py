@@ -187,9 +187,6 @@ class CapitalManager:
         if profit_target_reached:
             should_stop = True
             reason_to_stop = f"Meta de ganancia alcanzada: ${daily_pnl:.2f} >= ${profit_target:.2f}"
-        elif max_loss_reached:
-            should_stop = True
-            reason_to_stop = f"Pérdida máxima alcanzada: ${daily_pnl:.2f} <= ${max_loss:.2f}"
         elif max_trades_reached:
             should_stop = True
             reason_to_stop = f"Límite de trades alcanzado: {trades_count} >= {self.targets.max_trades}"

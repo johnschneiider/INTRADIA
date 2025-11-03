@@ -27,13 +27,21 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-)(k7erfpc)g&lhbs29)-0*-&#4di^&)5j9&b%*rxb4+px3x#s8'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Usar variable de entorno DJANGO_DEBUG ("1"/"0"). Default: False en servidor
+DEBUG = os.getenv('DJANGO_DEBUG', '0') == '1'
 
 # ALLOWED HOSTS - Configuración para producción
 # En desarrollo: permitir todo
 # En producción: solo dominios específicos
-ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', 
-    'localhost,127.0.0.1,vitalmix.com.co,www.vitalmix.com.co,92.113.39.100'
+ALLOWED_HOSTS = os.getenv(
+    'DJANGO_ALLOWED_HOSTS',
+    'localhost,127.0.0.1,vitalmix.com.co,www.vitalmix.com.co'
+).split(',')
+
+# CSRF trusted origins para despliegue detrás de Nginx/HTTPS
+CSRF_TRUSTED_ORIGINS = os.getenv(
+    'DJANGO_CSRF_TRUSTED_ORIGINS',
+    'https://vitalmix.com.co,https://www.vitalmix.com.co'
 ).split(',')
 
 # Dominio de producción
@@ -195,6 +203,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+# Carpeta donde collectstatic recopila archivos en producción
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Templates
 TEMPLATES = [
