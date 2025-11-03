@@ -58,6 +58,9 @@ source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
 pip install -r requirements.txt
 
+# Instalar websocket-client si falta (requerido por deriv_client)
+pip install websocket-client==1.7.0
+
 # =============================
 # Variables de entorno y Django
 # =============================
@@ -70,10 +73,11 @@ DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},https://${DOMAIN_WWW}
 EOF
 fi
 
-mkdir -p /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media"
-chown -R www-data:www-data /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media"
+mkdir -p /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media" "$PROJECT_DIR/static"
+chown -R www-data:www-data /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media" "$PROJECT_DIR/static"
 
 echo "🗄️ Migraciones y estáticos..."
+python manage.py makemigrations --noinput || true
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
