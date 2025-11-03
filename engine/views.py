@@ -932,6 +932,7 @@ def services_status_api(request):
     services = {
         'trading-loop': 'intradia-trading-loop.service',
         'daphne': 'intradia-daphne.service',
+        'save-ticks': 'intradia-save-ticks.service',
         'gunicorn': 'intradia-gunicorn.service',
     }
     
@@ -1032,6 +1033,7 @@ def services_restart_api(request):
         services_map = {
             'trading-loop': 'intradia-trading-loop.service',
             'daphne': 'intradia-daphne.service',
+            'save-ticks': 'intradia-save-ticks.service',
             'gunicorn': 'intradia-gunicorn.service',
         }
         

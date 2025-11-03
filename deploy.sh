@@ -215,27 +215,56 @@ cat > "$SUDOERS_FILE" <<SUDOERS
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl restart ${PROJECT_NAME}-gunicorn.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl restart ${PROJECT_NAME}-trading-loop.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl restart ${PROJECT_NAME}-daphne.service
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl restart ${PROJECT_NAME}-save-ticks.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl status ${PROJECT_NAME}-gunicorn.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl status ${PROJECT_NAME}-trading-loop.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl status ${PROJECT_NAME}-daphne.service
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl status ${PROJECT_NAME}-save-ticks.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl is-active ${PROJECT_NAME}-gunicorn.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl is-active ${PROJECT_NAME}-trading-loop.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl is-active ${PROJECT_NAME}-daphne.service
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl is-active ${PROJECT_NAME}-save-ticks.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl show ${PROJECT_NAME}-gunicorn.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl show ${PROJECT_NAME}-trading-loop.service
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl show ${PROJECT_NAME}-daphne.service
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl show ${PROJECT_NAME}-save-ticks.service
 SUDOERS
 chmod 440 "$SUDOERS_FILE"
 
+# Crear servicio para save_realtime_tick
+cat > "/etc/systemd/system/${PROJECT_NAME}-save-ticks.service" << UNIT
+[Unit]
+Description=${PROJECT_NAME} Save Realtime Ticks
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=${PROJECT_DIR}
+Environment="PATH=${VENV_DIR}/bin"
+Environment="DJANGO_DEBUG=0"
+Environment="DJANGO_SETTINGS_MODULE=config.settings"
+ExecStart=${VENV_DIR}/bin/python -u ${PROJECT_DIR}/manage.py save_realtime_tick
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/intradia/save_ticks.log
+StandardError=append:/var/log/intradia/save_ticks_error.log
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
 systemctl daemon-reload
-systemctl enable ${PROJECT_NAME}-gunicorn ${PROJECT_NAME}-trading-loop ${PROJECT_NAME}-daphne
+systemctl enable ${PROJECT_NAME}-gunicorn ${PROJECT_NAME}-trading-loop ${PROJECT_NAME}-daphne ${PROJECT_NAME}-save-ticks
 systemctl restart ${PROJECT_NAME}-gunicorn
 systemctl restart ${PROJECT_NAME}-trading-loop
 systemctl restart ${PROJECT_NAME}-daphne
+systemctl restart ${PROJECT_NAME}-save-ticks
 
 echo "\n✅ Despliegue completado"
 echo "🌍 Dominio: http://${DOMAIN} (o https si tienes SSL)"
-echo "🧰 Servicios: ${PROJECT_NAME}-gunicorn, ${PROJECT_NAME}-trading-loop, ${PROJECT_NAME}-daphne"
+echo "🧰 Servicios: ${PROJECT_NAME}-gunicorn, ${PROJECT_NAME}-trading-loop, ${PROJECT_NAME}-daphne, ${PROJECT_NAME}-save-ticks"
 echo "📜 Logs: /var/log/intradia/ y /var/log/gunicorn/"
 
 exit 0
