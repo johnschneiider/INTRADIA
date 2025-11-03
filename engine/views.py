@@ -973,6 +973,8 @@ def services_status_api(request):
                     log_file = '/var/log/intradia/trading_loop.log'
                 elif service_key == 'daphne':
                     log_file = '/var/log/intradia/daphne.log'
+                elif service_key == 'save-ticks':
+                    log_file = '/var/log/intradia/save_ticks.log'
                 else:
                     log_file = '/var/log/gunicorn/intradia_error.log'
                 
@@ -1103,6 +1105,7 @@ def services_logs_api(request):
     log_files = {
         'trading-loop': '/var/log/intradia/trading_loop.log',
         'daphne': '/var/log/intradia/daphne.log',
+        'save-ticks': '/var/log/intradia/save_ticks.log',
         'gunicorn': '/var/log/gunicorn/intradia_error.log',
     }
     
@@ -1139,6 +1142,83 @@ def services_logs_api(request):
         return JsonResponse({
             'success': False,
             'message': 'Timeout al leer logs'
+        }, status=500)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@login_required
+def trading_loop_control_api(request):
+    """API para pausar/reanudar el trading loop"""
+    import subprocess
+    import json
+    
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Método no permitido'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        action = data.get('action')  # 'pause' o 'resume'
+        
+        if action not in ['pause', 'resume']:
+            return JsonResponse({
+                'success': False,
+                'message': 'Acción no válida. Use "pause" o "resume"'
+            }, status=400)
+        
+        service_name = 'intradia-trading-loop.service'
+        
+        if action == 'pause':
+            # Detener el servicio
+            result = subprocess.run(
+                ['sudo', 'systemctl', 'stop', service_name],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            message = 'Trading loop pausado'
+        else:  # resume
+            # Iniciar el servicio
+            result = subprocess.run(
+                ['sudo', 'systemctl', 'start', service_name],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            message = 'Trading loop reanudado'
+        
+        if result.returncode == 0:
+            # Esperar un momento y verificar estado
+            import time
+            time.sleep(1)
+            
+            check_result = subprocess.run(
+                ['sudo', 'systemctl', 'is-active', service_name],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            is_active = check_result.returncode == 0
+            
+            return JsonResponse({
+                'success': True,
+                'message': message,
+                'is_active': is_active
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': f'Error: {result.stderr}'
+            }, status=500)
+            
+    except subprocess.TimeoutExpired:
+        return JsonResponse({
+            'success': False,
+            'message': 'Timeout al ejecutar la acción'
         }, status=500)
     except Exception as e:
         return JsonResponse({

@@ -308,6 +308,117 @@
         margin-bottom: 1rem;
         opacity: 0.5;
     }
+    
+    .btn-pause {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        border: none;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-right: 0.5rem;
+    }
+    
+    .btn-pause:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+    }
+    
+    .btn-pause:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    
+    .btn-pause.loading {
+        animation: spin 1s linear infinite;
+    }
+    
+    .bot-control-section {
+        background: var(--dark-card);
+        border: 1px solid var(--dark-border);
+        border-radius: 20px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+    
+    .bot-control-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+    
+    .bot-status {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+    
+    .bot-status-indicator {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+    }
+    
+    .bot-status-indicator.active {
+        background: var(--success-color);
+    }
+    
+    .bot-status-indicator.paused {
+        background: var(--warning-color);
+        animation: none;
+    }
+    
+    .logs-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+        gap: 1.5rem;
+        margin-top: 2rem;
+    }
+    
+    .service-log-card {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--dark-border);
+        border-radius: 15px;
+        padding: 1.5rem;
+    }
+    
+    .service-log-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--dark-border);
+    }
+    
+    .service-log-content {
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: 'JetBrains Mono', 'Courier New', monospace;
+        font-size: 0.75rem;
+        line-height: 1.6;
+        color: var(--text-secondary);
+    }
+    
+    .service-log-content::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .service-log-content::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+    }
+    
+    .service-log-content::-webkit-scrollbar-thumb {
+        background: var(--dark-border);
+        border-radius: 3px;
+    }
 </style>
 {% endblock %}
 
@@ -328,6 +439,91 @@
                 
                 <div id="alertContainer"></div>
                 
+                <!-- Sección de Control del Bot -->
+                <div class="bot-control-section">
+                    <div class="bot-control-header">
+                        <div>
+                            <h2 class="text-white mb-2">
+                                <i class="fas fa-robot me-2"></i>
+                                Control del Bot de Trading
+                            </h2>
+                            <div class="bot-status">
+                                <span class="bot-status-indicator" id="botStatusIndicator"></span>
+                                <span class="text-secondary" id="botStatusText">Verificando estado...</span>
+                            </div>
+                        </div>
+                        <button class="btn-pause" id="botControlBtn" onclick="toggleTradingLoop()">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Cargando...
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Sección de Logs en Tiempo Real -->
+                <div class="bot-control-section">
+                    <h2 class="text-white mb-3">
+                        <i class="fas fa-terminal me-2"></i>
+                        Actividad en Tiempo Real
+                    </h2>
+                    <div class="logs-container" id="realtimeLogsContainer">
+                        <div class="service-log-card">
+                            <div class="service-log-header">
+                                <h4 class="text-white mb-0">
+                                    <i class="fas fa-sync-alt me-2"></i>
+                                    Trading Loop
+                                </h4>
+                                <button class="btn btn-sm btn-secondary" onclick="refreshServiceLog('trading-loop')">
+                                    <i class="fas fa-sync"></i>
+                                </button>
+                            </div>
+                            <div class="service-log-content" id="log-trading-loop">
+                                <div class="text-center text-muted">
+                                    <i class="fas fa-spinner fa-spin"></i> Cargando...
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="service-log-card">
+                            <div class="service-log-header">
+                                <h4 class="text-white mb-0">
+                                    <i class="fas fa-database me-2"></i>
+                                    Save Realtime Ticks
+                                </h4>
+                                <button class="btn btn-sm btn-secondary" onclick="refreshServiceLog('save-ticks')">
+                                    <i class="fas fa-sync"></i>
+                                </button>
+                            </div>
+                            <div class="service-log-content" id="log-save-ticks">
+                                <div class="text-center text-muted">
+                                    <i class="fas fa-spinner fa-spin"></i> Cargando...
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="service-log-card">
+                            <div class="service-log-header">
+                                <h4 class="text-white mb-0">
+                                    <i class="fas fa-network-wired me-2"></i>
+                                    Daphne (WebSocket)
+                                </h4>
+                                <button class="btn btn-sm btn-secondary" onclick="refreshServiceLog('daphne')">
+                                    <i class="fas fa-sync"></i>
+                                </button>
+                            </div>
+                            <div class="service-log-content" id="log-daphne">
+                                <div class="text-center text-muted">
+                                    <i class="fas fa-spinner fa-spin"></i> Cargando...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Sección de Servicios -->
+                <h2 class="text-white mb-3">
+                    <i class="fas fa-server me-2"></i>
+                    Gestión de Servicios
+                </h2>
                 <div id="servicesContainer">
                     <div class="empty-state">
                         <i class="fas fa-spinner fa-spin"></i>
@@ -505,6 +701,15 @@
                     ` : ''}
                     
                     <div class="service-actions">
+                        ${serviceKey === 'trading-loop' ? `
+                            <button class="btn-pause" 
+                                    onclick="toggleTradingLoop('${serviceKey}', ${isActive})" 
+                                    data-service="${serviceKey}"
+                                    data-is-active="${isActive}">
+                                <i class="fas fa-${isActive ? 'pause' : 'play'}"></i>
+                                ${isActive ? 'Pausar Bot' : 'Reanudar Bot'}
+                            </button>
+                        ` : ''}
                         <button class="btn-restart" 
                                 onclick="restartService('${serviceKey}')" 
                                 data-service="${serviceKey}"
@@ -597,6 +802,160 @@
             });
     }
     
+    function toggleTradingLoop(serviceKey = 'trading-loop', isActive = null) {
+        const button = document.getElementById('botControlBtn');
+        const indicator = document.getElementById('botStatusIndicator');
+        const statusText = document.getElementById('botStatusText');
+        
+        if (!button || !indicator || !statusText) {
+            // Si se llama desde el botón del servicio individual
+            const serviceButton = document.querySelector(`[data-service="${serviceKey}"]`);
+            if (!serviceButton) return;
+            
+            const originalHTML = serviceButton.innerHTML;
+            serviceButton.disabled = true;
+            serviceButton.classList.add('loading');
+            
+            const action = isActive ? 'pause' : 'resume';
+            
+            fetch('{% url "engine:trading-loop-control" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({ action: action })
+            })
+            .then(response => response.json())
+            .then(data => {
+                serviceButton.disabled = false;
+                serviceButton.classList.remove('loading');
+                
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    setTimeout(() => {
+                        loadServicesStatus();
+                        updateBotControl();
+                        refreshAllServiceLogs();
+                    }, 2000);
+                } else {
+                    showAlert(data.message || 'Error al cambiar el estado', 'error');
+                    serviceButton.innerHTML = originalHTML;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                serviceButton.disabled = false;
+                serviceButton.classList.remove('loading');
+                serviceButton.innerHTML = originalHTML;
+                showAlert('Error de conexión', 'error');
+            });
+            return;
+        }
+        
+        // Lógica para el botón principal
+        const currentActive = button.getAttribute('data-is-active') === 'true';
+        const action = currentActive ? 'pause' : 'resume';
+        
+        button.disabled = true;
+        button.classList.add('loading');
+        button.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${action === 'pause' ? 'Pausando...' : 'Reanudando...'}`;
+        
+        fetch('{% url "engine:trading-loop-control" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ action: action })
+        })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.classList.remove('loading');
+            
+            if (data.success) {
+                showAlert(data.message, 'success');
+                updateBotControl();
+                setTimeout(() => {
+                    loadServicesStatus();
+                    refreshAllServiceLogs();
+                }, 2000);
+            } else {
+                showAlert(data.message || 'Error al cambiar el estado', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            button.disabled = false;
+            button.classList.remove('loading');
+            showAlert('Error de conexión', 'error');
+        });
+    }
+    
+    function updateBotControl() {
+        fetch('{% url "engine:services-status" %}')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.services['trading-loop']) {
+                    const tradingLoop = data.services['trading-loop'];
+                    const isActive = tradingLoop.active;
+                    const button = document.getElementById('botControlBtn');
+                    const indicator = document.getElementById('botStatusIndicator');
+                    const statusText = document.getElementById('botStatusText');
+                    
+                    if (button) {
+                        button.setAttribute('data-is-active', isActive);
+                        button.innerHTML = `
+                            <i class="fas fa-${isActive ? 'pause' : 'play'}"></i>
+                            ${isActive ? 'Pausar Bot' : 'Reanudar Bot'}
+                        `;
+                    }
+                    
+                    if (indicator) {
+                        indicator.className = `bot-status-indicator ${isActive ? 'active' : 'paused'}`;
+                    }
+                    
+                    if (statusText) {
+                        statusText.textContent = isActive ? 'Bot activo y operando' : 'Bot pausado';
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error actualizando control del bot:', error);
+            });
+    }
+    
+    function refreshServiceLog(serviceKey) {
+        const logContainer = document.getElementById(`log-${serviceKey}`);
+        if (!logContainer) return;
+        
+        logContainer.innerHTML = '<div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Cargando...</div>';
+        
+        fetch(`{% url "engine:services-logs" %}?service=${serviceKey}&lines=30`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.logs && data.logs.length > 0) {
+                    logContainer.innerHTML = data.logs.slice(-30).map(line => `
+                        <div style="margin-bottom: 0.25rem; word-break: break-all;">${escapeHtml(line)}</div>
+                    `).join('');
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                } else {
+                    logContainer.innerHTML = `<div class="text-center text-muted">${data.message || 'No hay logs disponibles'}</div>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                logContainer.innerHTML = '<div class="text-center text-danger">Error al cargar logs</div>';
+            });
+    }
+    
+    function refreshAllServiceLogs() {
+        refreshServiceLog('trading-loop');
+        refreshServiceLog('save-ticks');
+        refreshServiceLog('daphne');
+    }
+    
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -615,14 +974,25 @@
     // Inicializar
     document.addEventListener('DOMContentLoaded', function() {
         loadServicesStatus();
+        updateBotControl();
+        refreshAllServiceLogs();
         
         // Auto-refresh cada 30 segundos
-        statusInterval = setInterval(loadServicesStatus, 30000);
+        statusInterval = setInterval(() => {
+            loadServicesStatus();
+            updateBotControl();
+            refreshAllServiceLogs();
+        }, 30000);
+        
+        // Auto-refresh logs cada 10 segundos
+        setInterval(refreshAllServiceLogs, 10000);
         
         // Botón de refresh manual
         document.getElementById('refreshAll').addEventListener('click', function() {
             this.classList.add('loading');
             loadServicesStatus();
+            updateBotControl();
+            refreshAllServiceLogs();
             setTimeout(() => {
                 this.classList.remove('loading');
             }, 1000);
