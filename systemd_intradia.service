@@ -1,19 +1,21 @@
-# Servicio systemd para INTRADIA
-# Guardar en: /etc/systemd/system/intradia.service
+# Servicio systemd para INTRADIA - Gunicorn (Web Server)
+# Guardar en: /etc/systemd/system/intradia-gunicorn.service
+# NOTA: Este archivo es solo una plantilla. Usa la guía en docs/DESPLIEGUE_VPS.md
 
 [Unit]
-Description=INTRADIA Trading System
-After=network.target postgresql.service
+Description=INTRADIA Gunicorn Web Server
+After=network.target
 
 [Service]
 Type=notify
 User=www-data
 Group=www-data
-WorkingDirectory=/var/www/intradia
-Environment="PATH=/var/www/intradia/venv/bin"
-ExecStart=/var/www/intradia/venv/bin/gunicorn \
-    --config /var/www/intradia/gunicorn_config.py \
-    --pid /var/run/intradia.pid \
+WorkingDirectory=/var/www/intradia.com.co
+Environment="PATH=/var/www/intradia.com.co/venv/bin"
+Environment="DJANGO_DEBUG=0"
+ExecStart=/var/www/intradia.com.co/venv/bin/gunicorn \
+    --config /var/www/intradia.com.co/gunicorn_config.py \
+    --pid /var/run/intradia-gunicorn.pid \
     config.wsgi:application
 ExecReload=/bin/kill -s HUP $MAINPID
 Restart=always

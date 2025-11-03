@@ -18,6 +18,8 @@ keepalive = 5
 # Logging
 accesslog = "/var/log/gunicorn/intradia_access.log"
 errorlog = "/var/log/gunicorn/intradia_error.log"
+
+# NOTA: Asegúrate de crear el directorio: sudo mkdir -p /var/log/gunicorn
 loglevel = "info"
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
 

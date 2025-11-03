@@ -1,0 +1,635 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Administración de Servicios - INTRADIA{% endblock %}
+
+{% block extra_css %}
+<style>
+    .services-admin-container {
+        padding: 2rem 0;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    
+    .service-card {
+        background: var(--dark-card);
+        border: 1px solid var(--dark-border);
+        border-radius: 20px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        position: relative;
+        overflow: hidden;
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .service-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(99, 102, 241, 0.15);
+    }
+    
+    .service-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+    }
+    
+    .service-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+    
+    .service-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    
+    .service-title i {
+        font-size: 1.75rem;
+        color: var(--primary-color);
+    }
+    
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .status-badge.active {
+        background: rgba(16, 185, 129, 0.2);
+        color: var(--success-color);
+        border: 1px solid var(--success-color);
+    }
+    
+    .status-badge.inactive {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--danger-color);
+        border: 1px solid var(--danger-color);
+    }
+    
+    .status-badge.error {
+        background: rgba(245, 158, 11, 0.2);
+        color: var(--warning-color);
+        border: 1px solid var(--warning-color);
+    }
+    
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+    }
+    
+    .status-badge.active .status-dot {
+        background: var(--success-color);
+    }
+    
+    .status-badge.inactive .status-dot {
+        background: var(--danger-color);
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    .service-actions {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+    
+    .btn-restart {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        border: none;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .btn-restart:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+    }
+    
+    .btn-restart:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none;
+    }
+    
+    .btn-restart.loading {
+        position: relative;
+        color: transparent;
+    }
+    
+    .btn-restart.loading::after {
+        content: '';
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        top: 50%;
+        left: 50%;
+        margin-left: -8px;
+        margin-top: -8px;
+        border: 2px solid white;
+        border-radius: 50%;
+        border-top-color: transparent;
+        animation: spin 0.8s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .btn-logs {
+        background: transparent;
+        border: 1px solid var(--dark-border);
+        color: var(--text-secondary);
+        padding: 0.75rem 1.5rem;
+        border-radius: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .btn-logs:hover {
+        background: var(--dark-border);
+        color: var(--text-primary);
+        border-color: var(--primary-color);
+    }
+    
+    .log-preview {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--dark-border);
+        border-radius: 10px;
+        padding: 1rem;
+        margin-top: 1rem;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        max-height: 200px;
+        overflow-y: auto;
+        line-height: 1.6;
+    }
+    
+    .log-preview::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .log-preview::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 3px;
+    }
+    
+    .log-preview::-webkit-scrollbar-thumb {
+        background: var(--dark-border);
+        border-radius: 3px;
+    }
+    
+    .log-preview::-webkit-scrollbar-thumb:hover {
+        background: var(--primary-color);
+    }
+    
+    .log-line {
+        margin-bottom: 0.25rem;
+        word-break: break-all;
+    }
+    
+    .service-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--dark-border);
+    }
+    
+    .detail-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+    
+    .detail-label {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .detail-value {
+        font-size: 0.875rem;
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+    
+    .alert {
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    
+    .alert-success {
+        background: rgba(16, 185, 129, 0.1);
+        border: 1px solid var(--success-color);
+        color: var(--success-color);
+    }
+    
+    .alert-error {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid var(--danger-color);
+        color: var(--danger-color);
+    }
+    
+    .refresh-btn {
+        position: fixed;
+        bottom: 2rem;
+        right: 2rem;
+        background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+        border: none;
+        color: white;
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        font-size: 1.5rem;
+        cursor: pointer;
+        box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .refresh-btn:hover {
+        transform: scale(1.1) rotate(90deg);
+        box-shadow: 0 6px 25px rgba(99, 102, 241, 0.6);
+    }
+    
+    .refresh-btn.loading {
+        animation: spin 1s linear infinite;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--text-secondary);
+    }
+    
+    .empty-state i {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="services-admin-container">
+    <div class="container">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h1 class="text-white">
+                        <i class="fas fa-server me-2"></i>
+                        Administración de Servicios
+                    </h1>
+                    <button class="refresh-btn" id="refreshAll" title="Actualizar estado">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                </div>
+                
+                <div id="alertContainer"></div>
+                
+                <div id="servicesContainer">
+                    <div class="empty-state">
+                        <i class="fas fa-spinner fa-spin"></i>
+                        <p>Cargando estado de servicios...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal para ver logs completos -->
+<div class="modal fade" id="logsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content" style="background: var(--dark-card); border: 1px solid var(--dark-border);">
+            <div class="modal-header" style="border-bottom: 1px solid var(--dark-border);">
+                <h5 class="modal-title text-white" id="logsModalTitle">
+                    <i class="fas fa-file-alt me-2"></i>
+                    Logs del Servicio
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="logsModalContent" class="log-preview" style="max-height: 500px; font-size: 0.8rem;">
+                    <div class="text-center text-muted">
+                        <i class="fas fa-spinner fa-spin"></i> Cargando logs...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top: 1px solid var(--dark-border);">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    const services = {
+        'trading-loop': {
+            name: 'Trading Loop',
+            icon: 'fas fa-sync-alt',
+            description: 'Bucle principal de trading que ejecuta las estrategias'
+        },
+        'daphne': {
+            name: 'Daphne (WebSocket)',
+            icon: 'fas fa-network-wired',
+            description: 'Servidor WebSocket para datos en tiempo real'
+        },
+        'gunicorn': {
+            name: 'Gunicorn (Web Server)',
+            icon: 'fas fa-globe',
+            description: 'Servidor web principal de la aplicación'
+        }
+    };
+    
+    let statusInterval;
+    
+    function showAlert(message, type = 'success') {
+        const alertContainer = document.getElementById('alertContainer');
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type}`;
+        alertDiv.innerHTML = `
+            <i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+            <span>${message}</span>
+        `;
+        alertContainer.appendChild(alertDiv);
+        
+        setTimeout(() => {
+            alertDiv.remove();
+        }, 5000);
+    }
+    
+    function loadServicesStatus() {
+        fetch('{% url "engine:services-status" %}')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    renderServices(data.services);
+                } else {
+                    showAlert('Error al cargar el estado de los servicios', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error de conexión al cargar servicios', 'error');
+            });
+    }
+    
+    function renderServices(servicesData) {
+        const container = document.getElementById('servicesContainer');
+        
+        if (!servicesData || Object.keys(servicesData).length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <p>No se encontraron servicios configurados</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = Object.keys(servicesData).map(serviceKey => {
+            const service = services[serviceKey] || { name: serviceKey, icon: 'fas fa-cog', description: '' };
+            const data = servicesData[serviceKey];
+            const isActive = data.active;
+            const statusClass = isActive ? 'active' : (data.status === 'error' ? 'error' : 'inactive');
+            
+            return `
+                <div class="service-card">
+                    <div class="service-header">
+                        <div class="service-title">
+                            <i class="${service.icon}"></i>
+                            <div>
+                                <div>${service.name}</div>
+                                <small style="color: var(--text-secondary); font-size: 0.875rem;">${service.description}</small>
+                            </div>
+                        </div>
+                        <span class="status-badge ${statusClass}">
+                            <span class="status-dot"></span>
+                            ${data.status || 'Desconocido'}
+                        </span>
+                    </div>
+                    
+                    ${data.details ? `
+                        <div class="service-details">
+                            ${data.details.ActiveState ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Estado</span>
+                                    <span class="detail-value">${data.details.ActiveState}</span>
+                                </div>
+                            ` : ''}
+                            ${data.details.SubState ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">Sub-Estado</span>
+                                    <span class="detail-value">${data.details.SubState}</span>
+                                </div>
+                            ` : ''}
+                            ${data.details.MainPID ? `
+                                <div class="detail-item">
+                                    <span class="detail-label">PID</span>
+                                    <span class="detail-value">${data.details.MainPID}</span>
+                                </div>
+                            ` : ''}
+                            <div class="detail-item">
+                                <span class="detail-label">Servicio Systemd</span>
+                                <span class="detail-value" style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;">${data.service_name}</span>
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    ${data.error ? `
+                        <div class="alert alert-error mt-3">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <span>${data.error}</span>
+                        </div>
+                    ` : ''}
+                    
+                    ${data.log_preview && data.log_preview.length > 0 ? `
+                        <div class="log-preview">
+                            <div class="text-muted mb-2" style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;">
+                                <i class="fas fa-file-alt me-1"></i>
+                                Últimas líneas del log
+                            </div>
+                            ${data.log_preview.slice(-5).map(line => `
+                                <div class="log-line">${escapeHtml(line)}</div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="service-actions">
+                        <button class="btn-restart" 
+                                onclick="restartService('${serviceKey}')" 
+                                data-service="${serviceKey}"
+                                ${!isActive ? 'style="opacity: 0.7;"' : ''}>
+                            <i class="fas fa-redo"></i>
+                            Reiniciar Servicio
+                        </button>
+                        <button class="btn-logs" onclick="viewLogs('${serviceKey}')">
+                            <i class="fas fa-file-alt"></i>
+                            Ver Logs Completos
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    function restartService(serviceKey) {
+        const button = document.querySelector(`[data-service="${serviceKey}"]`);
+        const originalHTML = button.innerHTML;
+        
+        button.disabled = true;
+        button.classList.add('loading');
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reiniciando...';
+        
+        fetch('{% url "engine:services-restart" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ service: serviceKey })
+        })
+        .then(response => response.json())
+        .then(data => {
+            button.disabled = false;
+            button.classList.remove('loading');
+            button.innerHTML = originalHTML;
+            
+            if (data.success) {
+                showAlert(data.message, 'success');
+                // Recargar estado después de 2 segundos
+                setTimeout(() => {
+                    loadServicesStatus();
+                }, 2000);
+            } else {
+                showAlert(data.message || 'Error al reiniciar el servicio', 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            button.disabled = false;
+            button.classList.remove('loading');
+            button.innerHTML = originalHTML;
+            showAlert('Error de conexión al reiniciar servicio', 'error');
+        });
+    }
+    
+    function viewLogs(serviceKey) {
+        const modal = new bootstrap.Modal(document.getElementById('logsModal'));
+        const title = document.getElementById('logsModalTitle');
+        const content = document.getElementById('logsModalContent');
+        
+        const service = services[serviceKey] || { name: serviceKey };
+        title.innerHTML = `<i class="fas fa-file-alt me-2"></i>Logs de ${service.name}`;
+        content.innerHTML = '<div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Cargando logs...</div>';
+        
+        modal.show();
+        
+        fetch(`{% url "engine:services-logs" %}?service=${serviceKey}&lines=100`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.logs) {
+                    content.innerHTML = data.logs.map(line => `
+                        <div class="log-line">${escapeHtml(line)}</div>
+                    `).join('');
+                } else {
+                    content.innerHTML = `<div class="text-center text-muted">${data.message || 'No se pudieron cargar los logs'}</div>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                content.innerHTML = '<div class="text-center text-danger">Error al cargar los logs</div>';
+            });
+    }
+    
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    // Inicializar
+    document.addEventListener('DOMContentLoaded', function() {
+        loadServicesStatus();
+        
+        // Auto-refresh cada 30 segundos
+        statusInterval = setInterval(loadServicesStatus, 30000);
+        
+        // Botón de refresh manual
+        document.getElementById('refreshAll').addEventListener('click', function() {
+            this.classList.add('loading');
+            loadServicesStatus();
+            setTimeout(() => {
+                this.classList.remove('loading');
+            }, 1000);
+        });
+    });
+    
+    // Limpiar intervalo al salir
+    window.addEventListener('beforeunload', function() {
+        if (statusInterval) {
+            clearInterval(statusInterval);
+        }
+    });
+</script>
+{% endblock %}
+

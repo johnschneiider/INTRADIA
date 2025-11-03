@@ -915,3 +915,231 @@ def quick_controls_api(request):
             }, status=400)
     
     return JsonResponse({'success': False, 'message': 'Método no permitido'}, status=405)
+
+
+@login_required
+def services_admin(request):
+    """Panel de administración de servicios (trading loop, daphne, gunicorn)"""
+    return render(request, 'engine/services_admin.html')
+
+
+@login_required
+def services_status_api(request):
+    """API para obtener el estado de los servicios systemd"""
+    import subprocess
+    import json
+    
+    services = {
+        'trading-loop': 'intradia-trading-loop.service',
+        'daphne': 'intradia-daphne.service',
+        'gunicorn': 'intradia-gunicorn.service',
+    }
+    
+    status_data = {}
+    
+    for service_key, service_name in services.items():
+        try:
+            # Ejecutar systemctl is-active de forma segura (con sudo si es necesario)
+            result = subprocess.run(
+                ['sudo', 'systemctl', 'is-active', service_name],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            is_active = result.returncode == 0
+            status_text = result.stdout.strip() if result.returncode == 0 else 'inactive'
+            
+            # Obtener más información con systemctl show
+            show_result = subprocess.run(
+                ['sudo', 'systemctl', 'show', service_name, '--property=ActiveState,SubState,MainPID'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            details = {}
+            if show_result.returncode == 0:
+                for line in show_result.stdout.strip().split('\n'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        details[key] = value
+            
+            # Intentar obtener las últimas líneas del log
+            log_lines = []
+            try:
+                if service_key == 'trading-loop':
+                    log_file = '/var/log/intradia/trading_loop.log'
+                elif service_key == 'daphne':
+                    log_file = '/var/log/intradia/daphne.log'
+                else:
+                    log_file = '/var/log/gunicorn/intradia_error.log'
+                
+                tail_result = subprocess.run(
+                    ['tail', '-n', '20', log_file],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if tail_result.returncode == 0:
+                    log_lines = tail_result.stdout.strip().split('\n')[-10:]  # Últimas 10 líneas
+            except Exception:
+                log_lines = []
+            
+            status_data[service_key] = {
+                'active': is_active,
+                'status': status_text,
+                'details': details,
+                'log_preview': log_lines,
+                'service_name': service_name
+            }
+            
+        except subprocess.TimeoutExpired:
+            status_data[service_key] = {
+                'active': False,
+                'status': 'timeout',
+                'error': 'Timeout al consultar el servicio',
+                'service_name': service_name
+            }
+        except Exception as e:
+            status_data[service_key] = {
+                'active': False,
+                'status': 'error',
+                'error': str(e),
+                'service_name': service_name
+            }
+    
+    return JsonResponse({
+        'success': True,
+        'services': status_data
+    })
+
+
+@login_required
+def services_restart_api(request):
+    """API para reiniciar un servicio específico"""
+    import subprocess
+    import json
+    
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Método no permitido'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        service_key = data.get('service')
+        
+        # Mapeo de servicios permitidos
+        services_map = {
+            'trading-loop': 'intradia-trading-loop.service',
+            'daphne': 'intradia-daphne.service',
+            'gunicorn': 'intradia-gunicorn.service',
+        }
+        
+        if service_key not in services_map:
+            return JsonResponse({
+                'success': False,
+                'message': f'Servicio "{service_key}" no válido'
+            }, status=400)
+        
+        service_name = services_map[service_key]
+        
+        # Ejecutar systemctl restart de forma segura (con sudo)
+        result = subprocess.run(
+            ['sudo', 'systemctl', 'restart', service_name],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            # Esperar un momento y verificar que se reinició correctamente
+            import time
+            time.sleep(2)
+            
+            check_result = subprocess.run(
+                ['sudo', 'systemctl', 'is-active', service_name],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            is_active = check_result.returncode == 0
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'Servicio {service_key} reiniciado exitosamente',
+                'active': is_active
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': f'Error al reiniciar: {result.stderr}'
+            }, status=500)
+            
+    except subprocess.TimeoutExpired:
+        return JsonResponse({
+            'success': False,
+            'message': 'Timeout al reiniciar el servicio'
+        }, status=500)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
+
+
+@login_required
+def services_logs_api(request):
+    """API para obtener los últimos logs de un servicio"""
+    import subprocess
+    import json
+    
+    service_key = request.GET.get('service')
+    lines = int(request.GET.get('lines', 50))
+    
+    # Mapeo de servicios y sus archivos de log
+    log_files = {
+        'trading-loop': '/var/log/intradia/trading_loop.log',
+        'daphne': '/var/log/intradia/daphne.log',
+        'gunicorn': '/var/log/gunicorn/intradia_error.log',
+    }
+    
+    if service_key not in log_files:
+        return JsonResponse({
+            'success': False,
+            'message': f'Servicio "{service_key}" no válido'
+        }, status=400)
+    
+    log_file = log_files[service_key]
+    
+    try:
+        result = subprocess.run(
+            ['tail', '-n', str(lines), log_file],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            log_lines = result.stdout.strip().split('\n')
+            return JsonResponse({
+                'success': True,
+                'logs': log_lines,
+                'service': service_key
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'message': f'Error al leer logs: {result.stderr}'
+            }, status=500)
+            
+    except subprocess.TimeoutExpired:
+        return JsonResponse({
+            'success': False,
+            'message': 'Timeout al leer logs'
+        }, status=500)
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'message': str(e)
+        }, status=500)
