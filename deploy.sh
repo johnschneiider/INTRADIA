@@ -62,6 +62,12 @@ pip install -r requirements.txt
 pip install websocket-client==1.7.0
 
 # =============================
+# Crear directorios necesarios ANTES de ejecutar Django
+# =============================
+mkdir -p /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media" "$PROJECT_DIR/static"
+chown -R www-data:www-data /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media" "$PROJECT_DIR/static"
+
+# =============================
 # Variables de entorno y Django
 # =============================
 touch .env
@@ -73,11 +79,9 @@ DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},https://${DOMAIN_WWW}
 EOF
 fi
 
-mkdir -p /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media" "$PROJECT_DIR/static"
-chown -R www-data:www-data /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/staticfiles" "$PROJECT_DIR/media" "$PROJECT_DIR/static"
-
 echo "🗄️ Migraciones y estáticos..."
-python manage.py makemigrations --noinput || true
+# Crear migraciones si hay cambios
+python manage.py makemigrations engine --noinput 2>/dev/null || python manage.py makemigrations --noinput || true
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
@@ -138,7 +142,7 @@ Description=INTRADIA Gunicorn Web Server
 After=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=www-data
 Group=www-data
 WorkingDirectory=${PROJECT_DIR}
@@ -146,10 +150,11 @@ Environment="PATH=${VENV_DIR}/bin"
 Environment="DJANGO_DEBUG=0"
 ExecStart=${VENV_DIR}/bin/gunicorn \
   --config ${PROJECT_DIR}/gunicorn_config.py \
-  --bind 127.0.0.1:${GUNICORN_PORT} \
   config.wsgi:application
 Restart=always
 RestartSec=10
+StandardOutput=append:/var/log/gunicorn/intradia_access.log
+StandardError=append:/var/log/gunicorn/intradia_error.log
 
 [Install]
 WantedBy=multi-user.target
