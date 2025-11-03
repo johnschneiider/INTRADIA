@@ -173,6 +173,7 @@ Group=www-data
 WorkingDirectory=${PROJECT_DIR}
 Environment="PATH=${VENV_DIR}/bin"
 Environment="DJANGO_DEBUG=0"
+Environment="DJANGO_SETTINGS_MODULE=config.settings"
 ExecStart=${VENV_DIR}/bin/python manage.py trading_loop
 Restart=always
 RestartSec=10
