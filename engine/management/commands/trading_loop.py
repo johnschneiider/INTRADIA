@@ -191,6 +191,21 @@ class Command(BaseCommand):
                     timestamp__gte=since
                 ).values_list('symbol', flat=True).distinct()
                 
+                # Si no hay símbolos en BD, usar active_symbols.json como fallback
+                if not symbols:
+                    import os
+                    import json
+                    active_symbols_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'active_symbols.json')
+                    if os.path.exists(active_symbols_path):
+                        try:
+                            with open(active_symbols_path, 'r') as f:
+                                data = json.load(f)
+                                symbols = data.get('active_symbols', [])
+                                self.stdout.write(self.style.WARNING(f'⚠️ No hay ticks en BD, usando {len(symbols)} símbolos de active_symbols.json'))
+                        except Exception as e:
+                            self.stdout.write(self.style.ERROR(f'❌ Error cargando active_symbols.json: {e}'))
+                            symbols = []
+                
                 # Filtrar símbolos no operables (Crypto/OTC y BOOM/CRASH no ofrecidos en esta cuenta)
                 excluded_symbols = [
                     s for s in list(symbols)
