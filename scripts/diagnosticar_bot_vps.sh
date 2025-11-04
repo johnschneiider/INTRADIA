@@ -53,12 +53,13 @@ echo "6️⃣ Verificar conexión con Deriv API:"
 echo "-------------------------------------"
 python manage.py shell <<EOF
 from trading_bot.models import DerivAPIConfig
-config = DerivAPIConfig.objects.filter(is_active=True, is_real=True).first()
+config = DerivAPIConfig.objects.filter(is_active=True).first()
 if config:
     print(f"✅ Configuración de API encontrada:")
     print(f"  - Token: {config.api_token[:10]}...")
     print(f"  - Is active: {config.is_active}")
-    print(f"  - Is real: {config.is_real}")
+    print(f"  - Is demo: {config.is_demo}")
+    print(f"  - User: {config.user.username if config.user else 'N/A'}")
 else:
     print("❌ No hay configuración de API activa")
 EOF
