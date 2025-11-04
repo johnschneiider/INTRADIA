@@ -113,16 +113,15 @@ class TickTradingLoop:
             except Exception:
                 current_balance = Decimal('0')  # Si hay error, asumir $0 (más seguro)
             
-            # Aplicar controles rápidos (disable_max_trades)
-            effective_max_trades = capital_config.max_trades
-            if getattr(capital_config, 'disable_max_trades', False):
-                effective_max_trades = 999999  # Prácticamente ilimitado
+            # Aplicar controles rápidos (max_trades siempre ilimitado)
+            # Siempre usar 999999 para operación perpetua
+            effective_max_trades = 999999  # Siempre ilimitado
             
             # Advanced Capital Manager
             self.capital_manager = AdvancedCapitalManager(
                 profit_target=capital_config.profit_target,
                 max_loss=capital_config.max_loss,
-                max_trades=effective_max_trades,
+                max_trades=effective_max_trades,  # Siempre ilimitado
                 profit_target_pct=capital_config.profit_target_pct,
                 max_loss_pct=capital_config.max_loss_pct,
                 position_sizing_method=getattr(capital_config, 'position_sizing_method', 'kelly_fractional'),
@@ -314,16 +313,8 @@ class TickTradingLoop:
                 conservative_mode = False
             
             # 1. VERIFICACIÓN DE CAPITAL MANAGER (metas diarias, drawdown, etc.)
-            # Actualizar max_trades dinámicamente si disable_max_trades cambió
-            try:
-                from engine.models import CapitalConfig
-                config = CapitalConfig.get_active()
-                if getattr(config, 'disable_max_trades', False):
-                    # Si disable_max_trades está activo, asegurar que max_trades sea ilimitado
-                    if self.capital_manager.max_trades != 999999:
-                        self.capital_manager.max_trades = 999999
-            except Exception:
-                pass  # No detener si falla actualización
+            # max_trades siempre ilimitado - operación perpetua
+            # No es necesario verificar ni actualizar, siempre es ilimitado
             
             can_trade, capital_reason = self.capital_manager.can_trade(current_balance)
             if not can_trade:

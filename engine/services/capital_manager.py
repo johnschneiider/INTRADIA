@@ -71,10 +71,11 @@ class CapitalManager:
             protect_profits: Si True, activa protección de ganancias
             profit_protection_pct: % de ganancias a proteger cuando se alcanza la meta
         """
+        # max_trades siempre ilimitado para operación perpetua
         self.targets = DailyTargets(
             profit_target=profit_target,
             max_loss=max_loss,
-            max_trades=max_trades or 999999,
+            max_trades=999999,  # Siempre ilimitado
             profit_target_pct=profit_target_pct,
             max_loss_pct=max_loss_pct
         )
@@ -178,7 +179,8 @@ class CapitalManager:
         # Verificar si se alcanzaron las metas
         profit_target_reached = daily_pnl >= profit_target
         max_loss_reached = daily_pnl <= max_loss
-        max_trades_reached = trades_count >= self.targets.max_trades
+        # LÍMITE DE TRADES DESACTIVADO: Operación perpetua sin límite
+        max_trades_reached = False  # Siempre False para operación ilimitada
         
         # Decidir si debe detenerse
         should_stop = False
@@ -187,9 +189,7 @@ class CapitalManager:
         if profit_target_reached:
             should_stop = True
             reason_to_stop = f"Meta de ganancia alcanzada: ${daily_pnl:.2f} >= ${profit_target:.2f}"
-        elif max_trades_reached:
-            should_stop = True
-            reason_to_stop = f"Límite de trades alcanzado: {trades_count} >= {self.targets.max_trades}"
+        # Límite de trades eliminado - operación perpetua
         
         # Protección de ganancias: si ya alcanzó la meta pero sigue operando
         # y las pérdidas amenazan las ganancias, detener
@@ -271,7 +271,7 @@ class CapitalManager:
             f"P&L: ${stats.daily_pnl:.2f} | "
             f"Meta: ${profit_target:.2f} ({progress_pct:.1f}%) | "
             f"Límite pérdida: ${max_loss:.2f} | "
-            f"Trades: {stats.trades_count}/{self.targets.max_trades} | "
+            f"Trades: {stats.trades_count}/∞ | "
             f"Win Rate: {(stats.won_trades/stats.trades_count*100):.1f}%" if stats.trades_count > 0 else "Win Rate: 0%"
         )
         
@@ -292,4 +292,14 @@ class CapitalManager:
         """
         stats = self.get_daily_stats(current_balance)
         return stats.should_stop
+    
+    @property
+    def max_trades(self) -> int:
+        """Propiedad para compatibilidad - siempre retorna ilimitado"""
+        return 999999
+    
+    @max_trades.setter
+    def max_trades(self, value: int):
+        """Setter para compatibilidad - actualiza targets pero siempre mantiene ilimitado"""
+        self.targets.max_trades = 999999  # Siempre ilimitado
 

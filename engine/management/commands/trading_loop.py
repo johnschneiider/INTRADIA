@@ -149,14 +149,13 @@ class Command(BaseCommand):
                     if config.stop_loss_amount > 0:
                         effective_max_loss = -abs(config.stop_loss_amount)
                     
-                    # Actualizar configuración si cambió
-                    if (capital_manager.profit_target != effective_profit_target or
-                        capital_manager.max_loss != effective_max_loss or
-                        capital_manager.max_trades != effective_max_trades):
-                        capital_manager.profit_target = effective_profit_target
-                        capital_manager.max_loss = effective_max_loss
-                        capital_manager.max_trades = effective_max_trades
-                        capital_manager.profit_target_pct = effective_profit_target_pct
+                    # Actualizar configuración si cambió (max_trades siempre ilimitado)
+                    if (capital_manager.targets.profit_target != effective_profit_target or
+                        capital_manager.targets.max_loss != effective_max_loss):
+                        capital_manager.targets.profit_target = effective_profit_target
+                        capital_manager.targets.max_loss = effective_max_loss
+                        capital_manager.targets.max_trades = 999999  # Siempre ilimitado
+                        capital_manager.targets.profit_target_pct = effective_profit_target_pct
                         # Si stop_loss_amount está activo, desactivar max_loss_pct para evitar conflictos
                         if config.stop_loss_amount > 0:
                             capital_manager.max_loss_pct = None  # Desactivar porcentaje cuando stop_loss_amount está activo

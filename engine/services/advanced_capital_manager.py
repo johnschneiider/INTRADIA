@@ -446,11 +446,12 @@ class AdvancedCapitalManager:
             return False, f"Drawdown máximo excedido: {drawdown:.2f}% > {self.max_drawdown_pct}%"
         
         # Verificar límites básicos (del CapitalManager original)
+        # max_trades siempre ilimitado para operación perpetua
         from engine.services.capital_manager import CapitalManager
         basic_manager = CapitalManager(
             profit_target=self.profit_target,
             max_loss=self.max_loss,
-            max_trades=self.max_trades,
+            max_trades=999999,  # Siempre ilimitado
             profit_target_pct=self.profit_target_pct,
             max_loss_pct=self.max_loss_pct
         )
