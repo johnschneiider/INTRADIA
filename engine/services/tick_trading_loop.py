@@ -322,6 +322,7 @@ class TickTradingLoop:
                 if getattr(self, 'recovery_mode', False):
                     pass
                 else:
+                    print(f"  ❌ {symbol}: Capital manager rechazó: {capital_reason}")
                     return {
                         'status': 'rejected',
                         'reason': f'capital_manager: {capital_reason}'
@@ -411,6 +412,10 @@ class TickTradingLoop:
                     'message': f'Símbolo {symbol} sin señal clara, omitido'
                 }
             
+            # LOG: Señal generada - mostrar para debugging
+            if hasattr(signal, 'force_pct') and signal.force_pct > 0:
+                print(f"📡 {symbol}: Señal generada ({signal.direction}), fuerza: {signal.force_pct:.6f}%, confianza: {getattr(signal, 'confidence', 'N/A')}")
+            
             # Verificar si debe entrar (validación genérica basada en confianza)
             should_enter = False
             if hasattr(self.strategy, 'should_enter_trade'):
@@ -437,7 +442,11 @@ class TickTradingLoop:
                     should_enter = True
             
             if not should_enter:
-                # Insuficiente confianza - omitir silenciosamente (no registrar)
+                # Insuficiente confianza - mostrar razón para debugging
+                confidence = getattr(signal, 'confidence', 'N/A')
+                force_pct = getattr(signal, 'force_pct', 'N/A')
+                print(f"  ⚠️ {symbol}: Confianza insuficiente (conf: {confidence}, fuerza: {force_pct})")
+                
                 if hasattr(signal, 'force_pct'):
                     reason_data = {'force_pct': signal.force_pct}
                 elif hasattr(signal, 'confidence'):
@@ -467,6 +476,7 @@ class TickTradingLoop:
                     except Exception:
                         pass
                     if float(signal.confidence) < min_conf:
+                        print(f"  ⚠️ {symbol}: Filtro conservador activo (conf: {signal.confidence:.2f} < {min_conf:.2f})")
                         return {
                             'status': 'skipped',
                             'reason': 'conservative_confidence',
