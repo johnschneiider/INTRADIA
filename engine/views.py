@@ -979,7 +979,7 @@ def services_status_api(request):
                     log_file = '/var/log/gunicorn/intradia_error.log'
                 
                 tail_result = subprocess.run(
-                    ['tail', '-n', '20', log_file],
+                    ['/usr/bin/tail', '-n', '20', log_file],
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -1002,6 +1002,13 @@ def services_status_api(request):
                 'active': False,
                 'status': 'timeout',
                 'error': 'Timeout al consultar el servicio',
+                'service_name': service_name
+            }
+        except FileNotFoundError as e:
+            status_data[service_key] = {
+                'active': False,
+                'status': 'error',
+                'error': f'Comando no encontrado: {str(e)}. Verifique que /usr/bin/sudo existe.',
                 'service_name': service_name
             }
         except Exception as e:
@@ -1085,6 +1092,11 @@ def services_restart_api(request):
             'success': False,
             'message': 'Timeout al reiniciar el servicio'
         }, status=500)
+    except FileNotFoundError as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Comando no encontrado: {str(e)}. Verifique que /usr/bin/sudo existe en el servidor.'
+        }, status=500)
     except Exception as e:
         return JsonResponse({
             'success': False,
@@ -1119,7 +1131,7 @@ def services_logs_api(request):
     
     try:
         result = subprocess.run(
-            ['tail', '-n', str(lines), log_file],
+            ['/usr/bin/tail', '-n', str(lines), log_file],
             capture_output=True,
             text=True,
             timeout=10
@@ -1142,6 +1154,11 @@ def services_logs_api(request):
         return JsonResponse({
             'success': False,
             'message': 'Timeout al leer logs'
+        }, status=500)
+    except FileNotFoundError as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Comando no encontrado: {str(e)}. Verifique que /usr/bin/tail existe en el servidor.'
         }, status=500)
     except Exception as e:
         return JsonResponse({
@@ -1241,6 +1258,11 @@ def trading_loop_control_api(request):
         return JsonResponse({
             'success': False,
             'message': 'Timeout al ejecutar la acción'
+        }, status=500)
+    except FileNotFoundError as e:
+        return JsonResponse({
+            'success': False,
+            'message': f'Comando no encontrado: {str(e)}. Verifique que /usr/bin/sudo existe en el servidor.'
         }, status=500)
     except Exception as e:
         return JsonResponse({
