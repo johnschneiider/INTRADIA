@@ -942,7 +942,7 @@ def services_status_api(request):
         try:
             # Ejecutar systemctl is-active de forma segura (con sudo si es necesario)
             result = subprocess.run(
-                ['sudo', 'systemctl', 'is-active', service_name],
+                ['/usr/bin/sudo', 'systemctl', 'is-active', service_name],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -953,7 +953,7 @@ def services_status_api(request):
             
             # Obtener más información con systemctl show
             show_result = subprocess.run(
-                ['sudo', 'systemctl', 'show', service_name, '--property=ActiveState,SubState,MainPID'],
+                ['/usr/bin/sudo', 'systemctl', 'show', service_name, '--property=ActiveState,SubState,MainPID'],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -1049,7 +1049,7 @@ def services_restart_api(request):
         
         # Ejecutar systemctl restart de forma segura (con sudo)
         result = subprocess.run(
-            ['sudo', 'systemctl', 'restart', service_name],
+            ['/usr/bin/sudo', 'systemctl', 'restart', service_name],
             capture_output=True,
             text=True,
             timeout=10
@@ -1061,7 +1061,7 @@ def services_restart_api(request):
             time.sleep(2)
             
             check_result = subprocess.run(
-                ['sudo', 'systemctl', 'is-active', service_name],
+                ['/usr/bin/sudo', 'systemctl', 'is-active', service_name],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -1161,7 +1161,7 @@ def trading_loop_control_api(request):
         try:
             service_name = 'intradia-trading-loop.service'
             result = subprocess.run(
-                ['sudo', 'systemctl', 'is-active', service_name],
+                ['/usr/bin/sudo', 'systemctl', 'is-active', service_name],
                 capture_output=True,
                 text=True,
                 timeout=5
@@ -1196,7 +1196,7 @@ def trading_loop_control_api(request):
         if action == 'pause':
             # Detener el servicio
             result = subprocess.run(
-                ['sudo', 'systemctl', 'stop', service_name],
+                ['/usr/bin/sudo', 'systemctl', 'stop', service_name],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -1205,7 +1205,7 @@ def trading_loop_control_api(request):
         else:  # resume
             # Iniciar el servicio
             result = subprocess.run(
-                ['sudo', 'systemctl', 'start', service_name],
+                ['/usr/bin/sudo', 'systemctl', 'start', service_name],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -1218,7 +1218,7 @@ def trading_loop_control_api(request):
             time.sleep(1)
             
             check_result = subprocess.run(
-                ['sudo', 'systemctl', 'is-active', service_name],
+                ['/usr/bin/sudo', 'systemctl', 'is-active', service_name],
                 capture_output=True,
                 text=True,
                 timeout=5
