@@ -1170,12 +1170,19 @@ def close_all_trades_api(request):
                 'error': 'No hay configuración de API activa'
             }, status=500)
         
-        # Crear cliente Deriv
+        # Crear cliente Deriv (solo una vez para todos los trades)
         client = DerivClient(
             api_token=config.api_token,
             is_demo=config.is_demo,
             app_id=config.app_id
         )
+        
+        # Autenticar el cliente una sola vez
+        if not client.authenticate():
+            return JsonResponse({
+                'success': False,
+                'error': 'No se pudo autenticar con Deriv API'
+            }, status=500)
         
         closed_count = 0
         failed_count = 0
@@ -1185,6 +1192,9 @@ def close_all_trades_api(request):
         # Cerrar cada trade
         total_trades = active_trades.count()
         processed = 0
+        
+        # Importar time para delays
+        import time
         
         for trade in active_trades:
             processed += 1
@@ -1262,6 +1272,9 @@ def close_all_trades_api(request):
                 
                 closed_count += 1
                 total_pnl += profit
+                
+                # Pequeño delay para evitar rate limiting
+                time.sleep(0.2)
                 
             except Exception as e:
                 failed_count += 1
