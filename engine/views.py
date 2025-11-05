@@ -1132,3 +1132,111 @@ def close_trade_api(request):
             'error': str(e)
         }, status=500)
 
+
+@login_required
+@csrf_exempt
+def close_all_trades_api(request):
+    """API para cerrar todos los trades activos/pendientes"""
+    if request.method != 'POST':
+        return JsonResponse({
+            'success': False,
+            'error': 'Método no permitido'
+        }, status=405)
+    
+    try:
+        from connectors.deriv_client import DerivClient
+        from trading_bot.models import DerivAPIConfig
+        from monitoring.models import OrderAudit
+        from decimal import Decimal
+        
+        # Obtener todos los trades activos/pendientes
+        active_trades = OrderAudit.objects.filter(
+            status__in=['pending', 'active']
+        )
+        
+        if not active_trades.exists():
+            return JsonResponse({
+                'success': True,
+                'message': 'No hay trades activos para cerrar',
+                'closed_count': 0,
+                'total_pnl': 0
+            })
+        
+        # Obtener configuración de API
+        config = DerivAPIConfig.objects.filter(is_active=True).first()
+        if not config:
+            return JsonResponse({
+                'success': False,
+                'error': 'No hay configuración de API activa'
+            }, status=500)
+        
+        # Crear cliente Deriv
+        client = DerivClient(
+            api_token=config.api_token,
+            is_demo=config.is_demo,
+            app_id=config.app_id
+        )
+        
+        closed_count = 0
+        failed_count = 0
+        total_pnl = Decimal('0.00')
+        errors = []
+        
+        # Cerrar cada trade
+        for trade in active_trades:
+            contract_id = None
+            
+            # Intentar obtener contract_id del trade
+            if trade.response_payload:
+                contract_id = trade.response_payload.get('contract_id') or trade.response_payload.get('order_id')
+            
+            if not contract_id and trade.request_payload:
+                contract_id = trade.request_payload.get('contract_id') or trade.request_payload.get('order_id')
+            
+            if not contract_id:
+                failed_count += 1
+                errors.append(f"Trade {trade.id} ({trade.symbol}): No hay contract_id disponible")
+                continue
+            
+            try:
+                # Cerrar el contrato
+                result = client.sell_contract(str(contract_id))
+                
+                if result.get('error'):
+                    failed_count += 1
+                    errors.append(f"Trade {trade.id} ({trade.symbol}): {result.get('error')}")
+                    continue
+                
+                # Actualizar el trade en la base de datos
+                profit = Decimal(str(result.get('profit', 0)))
+                trade.status = 'won' if profit > 0 else 'lost'
+                trade.pnl = profit
+                
+                if not trade.response_payload:
+                    trade.response_payload = {}
+                trade.response_payload['sell_result'] = result
+                
+                trade.save()
+                
+                closed_count += 1
+                total_pnl += profit
+                
+            except Exception as e:
+                failed_count += 1
+                errors.append(f"Trade {trade.id} ({trade.symbol}): {str(e)}")
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Cerrados {closed_count} trades exitosamente',
+            'closed_count': closed_count,
+            'failed_count': failed_count,
+            'total_pnl': float(total_pnl),
+            'errors': errors if errors else None
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
