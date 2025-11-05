@@ -1159,9 +1159,10 @@ class DerivClient:
             
             self.response_event.clear()
             
-            # En Deriv, para cerrar un contrato se envía el contract_id directamente
+            # En Deriv, para cerrar un contrato se envía el contract_id con price: 0 (vender al precio de mercado)
             sell_msg = {
-                'sell': contract_id
+                'sell': contract_id,
+                'price': 0  # 0 = vender al precio de mercado actual
             }
             self.ws.send(json.dumps(sell_msg))
             
