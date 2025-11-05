@@ -349,8 +349,7 @@
     
     /* Responsive */
     @media (max-width: 768px) {
-        #connectionStatus,
-        #balanceStatus {
+        /* Elementos flotantes eliminados - ahora en navbar */
             position: relative;
             top: auto;
             right: auto;
@@ -381,14 +380,7 @@
 {% block content %}
 <div class="dashboard-container">
     <div class="container-fluid">
-        <!-- Status Badges -->
-        <div id="connectionStatus" class="disconnected">
-            <i class="fas fa-circle"></i> Desconectado
-        </div>
-        
-        <div id="balanceStatus">
-            <i class="fas fa-dollar-sign"></i> Balance: <span id="balanceAmount">$0.00</span>
-        </div>
+        <!-- Status Badges eliminados - ahora están en el navbar -->
 
         <!-- Dashboard Header -->
         <div class="dashboard-header-card">
@@ -522,8 +514,11 @@
         
         ws.onclose = function() {
             console.log('⚠️ WebSocket desconectado');
-            document.getElementById('connectionStatus').className = 'disconnected';
-            document.getElementById('connectionStatus').innerHTML = '<i class="fas fa-circle"></i> Desconectado';
+            const connectionStatusNav = document.getElementById('connectionStatusNav');
+            if (connectionStatusNav) {
+                connectionStatusNav.className = 'nav-link disconnected';
+                connectionStatusNav.innerHTML = '<i class="fas fa-circle"></i> Desconectado';
+            }
             
             // Reconectar después de un delay
             reconnectAttempts++;
