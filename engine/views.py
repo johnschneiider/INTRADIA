@@ -35,7 +35,11 @@ def get_trades(request):
         
         # Historial persistente desde la BD (no limitar a 30 minutos)
         # Mostrar las últimas 200 operaciones, incluyendo finalizadas antiguas
+        # Incluir TODOS los trades sin filtrar por estado
         trades = OrderAudit.objects.all().order_by('-timestamp')[:200]
+        
+        # Debug: mostrar cantidad de trades encontrados
+        print(f"📊 Total trades encontrados: {trades.count()}")
         
         active = []
         completed = []
@@ -141,10 +145,16 @@ def get_trades(request):
                 'strategy': strategy_name
             }
             
+            # Mostrar como activo si está pending o active
+            # Mostrar como completado si está won, lost, rejected, o cualquier otro estado
             if trade.status in ['pending', 'active']:
                 active.append(trade_data)
             else:
+                # Incluir todos los estados finalizados: won, lost, rejected, expired, etc.
                 completed.append(trade_data)
+        
+        # Debug: mostrar cantidad de trades por categoría
+        print(f"📊 Trades activos: {len(active)}, Trades completados: {len(completed)}")
         
         # MÉTRICAS: Operaciones en las últimas 24 horas
         since_metrics = timezone.now() - timedelta(hours=24)
@@ -1000,10 +1010,10 @@ def active_trades_api(request):
         from monitoring.models import OrderAudit
         from django.utils import timezone
         
-        # Obtener trades activos/pendientes
+        # Obtener trades activos/pendientes (incluir también 'rejected' si se muestran como activos temporalmente)
         active_trades = OrderAudit.objects.filter(
             status__in=['pending', 'active']
-        ).order_by('-timestamp')[:50]
+        ).order_by('-timestamp')[:100]  # Aumentar límite para mostrar más trades
         
         trades_data = []
         for trade in active_trades:
