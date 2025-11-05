@@ -392,6 +392,52 @@ def capital_config(request):
 
 
 @login_required
+def trading_config_api(request):
+    """API para obtener y guardar configuración de trading"""
+    from engine.models import CapitalConfig
+    
+    if request.method == 'GET':
+        config = CapitalConfig.get_active()
+        return JsonResponse({
+            'max_amount_pct_balance': config.max_amount_pct_balance,
+            'max_amount_absolute': config.max_amount_absolute,
+            'min_amount_per_trade': config.min_amount_per_trade,
+            'min_trade_interval_seconds': config.min_trade_interval_seconds,
+            'default_duration_forex': config.default_duration_forex,
+            'default_duration_metals': config.default_duration_metals,
+            'default_duration_indices': config.default_duration_indices,
+            'symbol_amount_limits': config.symbol_amount_limits or {},
+        })
+    
+    elif request.method == 'POST':
+        config = CapitalConfig.get_active()
+        data = json.loads(request.body) if request.body else {}
+        
+        # Actualizar campos
+        if 'max_amount_pct_balance' in data:
+            config.max_amount_pct_balance = float(data['max_amount_pct_balance'])
+        if 'max_amount_absolute' in data:
+            config.max_amount_absolute = float(data['max_amount_absolute'])
+        if 'min_amount_per_trade' in data:
+            config.min_amount_per_trade = float(data['min_amount_per_trade'])
+        if 'min_trade_interval_seconds' in data:
+            config.min_trade_interval_seconds = int(data['min_trade_interval_seconds'])
+        if 'default_duration_forex' in data:
+            config.default_duration_forex = int(data['default_duration_forex'])
+        if 'default_duration_metals' in data:
+            config.default_duration_metals = int(data['default_duration_metals'])
+        if 'default_duration_indices' in data:
+            config.default_duration_indices = int(data['default_duration_indices'])
+        if 'symbol_amount_limits' in data:
+            config.symbol_amount_limits = data['symbol_amount_limits']
+        
+        config.save()
+        return JsonResponse({'success': True, 'message': 'Configuración actualizada'})
+    
+    return JsonResponse({'success': False, 'error': 'Método no permitido'}, status=405)
+
+
+@login_required
 def quick_controls_api(request):
     """API para obtener y actualizar controles rápidos (límites para pruebas)"""
     from engine.models import CapitalConfig
