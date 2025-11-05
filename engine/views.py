@@ -1183,28 +1183,59 @@ def close_all_trades_api(request):
         errors = []
         
         # Cerrar cada trade
+        total_trades = active_trades.count()
+        processed = 0
+        
         for trade in active_trades:
+            processed += 1
             contract_id = None
             
-            # Intentar obtener contract_id del trade
-            if trade.response_payload:
-                contract_id = trade.response_payload.get('contract_id') or trade.response_payload.get('order_id')
-            
-            if not contract_id and trade.request_payload:
-                contract_id = trade.request_payload.get('contract_id') or trade.request_payload.get('order_id')
-            
-            if not contract_id:
-                failed_count += 1
-                errors.append(f"Trade {trade.id} ({trade.symbol}): No hay contract_id disponible")
-                continue
-            
+            # Intentar obtener contract_id del trade (múltiples formas)
             try:
+                # 1. Desde response_payload
+                if trade.response_payload:
+                    if isinstance(trade.response_payload, dict):
+                        contract_id = (
+                            trade.response_payload.get('contract_id') or
+                            trade.response_payload.get('order_id') or
+                            (trade.response_payload.get('buy', {}).get('contract_id') if isinstance(trade.response_payload.get('buy'), dict) else None)
+                        )
+                
+                # 2. Desde request_payload
+                if not contract_id and trade.request_payload:
+                    if isinstance(trade.request_payload, dict):
+                        contract_id = trade.request_payload.get('contract_id') or trade.request_payload.get('order_id')
+                
+                # 3. Si aún no hay contract_id, marcar como fallido
+                if not contract_id:
+                    failed_count += 1
+                    errors.append(f"Trade {trade.id} ({trade.symbol}): No hay contract_id disponible")
+                    # Marcar el trade como "lost" ya que no se puede cerrar
+                    try:
+                        trade.status = 'lost'
+                        trade.pnl = Decimal('0.00')
+                        trade.save()
+                    except:
+                        pass
+                    continue
+                
                 # Cerrar el contrato
                 result = client.sell_contract(str(contract_id))
                 
                 if result.get('error'):
                     failed_count += 1
-                    errors.append(f"Trade {trade.id} ({trade.symbol}): {result.get('error')}")
+                    error_msg = result.get('error', {}).get('message', str(result.get('error'))) if isinstance(result.get('error'), dict) else str(result.get('error'))
+                    errors.append(f"Trade {trade.id} ({trade.symbol}): {error_msg}")
+                    # Marcar el trade como "lost" si falla
+                    try:
+                        trade.status = 'lost'
+                        trade.pnl = Decimal('0.00')
+                        if not trade.response_payload:
+                            trade.response_payload = {}
+                        trade.response_payload['sell_error'] = result.get('error')
+                        trade.save()
+                    except:
+                        pass
                     continue
                 
                 # Actualizar el trade en la base de datos
@@ -1223,15 +1254,32 @@ def close_all_trades_api(request):
                 
             except Exception as e:
                 failed_count += 1
-                errors.append(f"Trade {trade.id} ({trade.symbol}): {str(e)}")
+                error_msg = str(e)
+                errors.append(f"Trade {trade.id} ({trade.symbol}): {error_msg}")
+                # Intentar marcar como lost si hay error
+                try:
+                    trade.status = 'lost'
+                    trade.pnl = Decimal('0.00')
+                    trade.save()
+                except:
+                    pass
+        
+        # Mensaje final
+        if closed_count > 0:
+            message = f'Cerrados {closed_count} trades exitosamente'
+        elif failed_count > 0:
+            message = f'No se pudieron cerrar los trades ({failed_count} fallidos)'
+        else:
+            message = 'No había trades para cerrar'
         
         return JsonResponse({
             'success': True,
-            'message': f'Cerrados {closed_count} trades exitosamente',
+            'message': message,
             'closed_count': closed_count,
             'failed_count': failed_count,
+            'total_count': total_trades,
             'total_pnl': float(total_pnl),
-            'errors': errors if errors else None
+            'errors': errors[:20] if errors else None  # Limitar a 20 errores para no saturar
         })
         
     except Exception as e:

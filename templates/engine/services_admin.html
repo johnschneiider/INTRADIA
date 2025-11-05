@@ -1148,6 +1148,13 @@
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cerrando...';
                 
+                // Timeout de 60 segundos para la operación
+                const timeoutId = setTimeout(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    showAlert('La operación está tomando más tiempo del esperado. Por favor, verifica los logs del servidor.', 'warning');
+                }, 60000);
+                
                 fetch('{% url "engine:close-all-trades" %}', {
                     method: 'POST',
                     headers: {
@@ -1155,33 +1162,48 @@
                         'X-CSRFToken': getCookie('csrftoken')
                     }
                 })
-                .then(response => response.json())
+                .then(response => {
+                    clearTimeout(timeoutId);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
                 .then(data => {
+                    clearTimeout(timeoutId);
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    
                     if (data.success) {
-                        let message = `✅ ${data.message}\n`;
-                        message += `Cerrados: ${data.closed_count} | Fallidos: ${data.failed_count}\n`;
-                        message += `P&L Total: $${parseFloat(data.total_pnl || 0).toFixed(2)}`;
+                        let message = `✅ ${data.message}\n\n`;
+                        message += `📊 Resumen:\n`;
+                        message += `  • Total procesados: ${data.total_count || count}\n`;
+                        message += `  • Cerrados exitosamente: ${data.closed_count}\n`;
+                        message += `  • Fallidos: ${data.failed_count}\n`;
+                        message += `  • P&L Total: $${parseFloat(data.total_pnl || 0).toFixed(2)}`;
                         
                         if (data.errors && data.errors.length > 0) {
-                            message += '\n\nErrores:\n' + data.errors.slice(0, 5).join('\n');
-                            if (data.errors.length > 5) {
-                                message += `\n... y ${data.errors.length - 5} más`;
+                            message += `\n\n⚠️ Errores (primeros ${Math.min(10, data.errors.length)}):\n`;
+                            data.errors.slice(0, 10).forEach((err, idx) => {
+                                message += `  ${idx + 1}. ${err}\n`;
+                            });
+                            if (data.errors.length > 10) {
+                                message += `  ... y ${data.errors.length - 10} más`;
                             }
                         }
                         
-                        showAlert(message, data.failed_count > 0 ? 'warning' : 'success');
+                        showAlert(message, data.failed_count > 0 && data.closed_count === 0 ? 'error' : (data.failed_count > 0 ? 'warning' : 'success'));
                         loadActiveTrades(); // Recargar lista
                     } else {
-                        showAlert(`Error al cerrar trades: ${data.error}`, 'error');
-                        btn.disabled = false;
-                        btn.innerHTML = originalHtml;
+                        showAlert(`❌ Error al cerrar trades: ${data.error || 'Error desconocido'}`, 'error');
                     }
                 })
                 .catch(error => {
+                    clearTimeout(timeoutId);
                     console.error('Error:', error);
-                    showAlert('Error de conexión al cerrar trades', 'error');
                     btn.disabled = false;
                     btn.innerHTML = originalHtml;
+                    showAlert(`❌ Error de conexión al cerrar trades: ${error.message}`, 'error');
                 });
             })
             .catch(error => {
