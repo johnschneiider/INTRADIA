@@ -169,16 +169,46 @@ def get_trades(request):
         # P&L total de las últimas 24 horas
         total_pnl = sum(float(t.pnl or 0) for t in recent_trades)
         
-        # Win rate
+        # Win rate general (últimas 24 horas)
         win_rate = (won_trades / (won_trades + lost_trades)) * 100 if (won_trades + lost_trades) > 0 else 0
         
+        # Calcular winrate de últimos 20 trades (más preciso para control de pérdidas)
+        try:
+            recent_20_trades = list(OrderAudit.objects.filter(
+                accepted=True,
+                status__in=['won', 'lost']
+            ).order_by('-timestamp')[:20])
+            
+            recent_20_total = len(recent_20_trades)
+            recent_20_won = sum(1 for t in recent_20_trades if t.status == 'won')
+            win_rate_recent = (recent_20_won / recent_20_total) if recent_20_total > 0 else (win_rate / 100)
+        except Exception:
+            win_rate_recent = win_rate / 100  # Fallback a winrate general
+        
         # Calcular drawdown para métricas
+        drawdown_pct = 0.0
         try:
             from engine.services.adaptive_filter_manager import AdaptiveFilterManager
+            from decimal import Decimal
+            # Obtener balance actual para calcular drawdown correctamente
+            try:
+                from connectors.deriv_client import DerivClient
+                from trading_bot.models import DerivAPIConfig
+                api_config = DerivAPIConfig.objects.filter(is_active=True).only('api_token', 'is_demo', 'app_id').first()
+                if api_config:
+                    client = DerivClient(api_token=api_config.api_token, is_demo=api_config.is_demo, app_id=api_config.app_id)
+                    balance_info = client.get_balance()
+                    current_balance = Decimal(str(balance_info.get('balance', 0) if isinstance(balance_info, dict) else balance_info))
+                else:
+                    current_balance = Decimal('0')
+            except:
+                current_balance = Decimal('0')
+            
             adaptive_manager = AdaptiveFilterManager()
-            metrics_obj = adaptive_manager.calculate_metrics(Decimal('0'))  # Balance no crítico para métricas
+            metrics_obj = adaptive_manager.calculate_metrics(current_balance)
             drawdown_pct = metrics_obj.drawdown_pct
-        except Exception:
+        except Exception as e:
+            print(f"Error calculando drawdown: {e}")
             drawdown_pct = 0.0
         
         return JsonResponse({
