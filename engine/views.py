@@ -1312,3 +1312,93 @@ def close_all_trades_api(request):
             'error': str(e)
         }, status=500)
 
+
+@login_required
+@csrf_exempt
+def mark_all_expired_api(request):
+    """API para marcar todos los trades activos/pendientes como expirados/perdidos (sin intentar cerrarlos en Deriv)"""
+    if request.method != 'POST':
+        return JsonResponse({
+            'success': False,
+            'error': 'Método no permitido'
+        }, status=405)
+    
+    try:
+        from monitoring.models import OrderAudit
+        from decimal import Decimal
+        from django.utils import timezone
+        
+        # Obtener todos los trades activos/pendientes
+        active_trades = OrderAudit.objects.filter(
+            status__in=['pending', 'active']
+        )
+        
+        if not active_trades.exists():
+            return JsonResponse({
+                'success': True,
+                'message': 'No hay trades activos para marcar',
+                'marked_count': 0,
+                'total_pnl': 0
+            })
+        
+        marked_count = 0
+        total_pnl = Decimal('0.00')
+        
+        # Marcar cada trade como "lost" (expirado/perdido)
+        for trade in active_trades:
+            try:
+                # Calcular P&L aproximado (negativo ya que se marca como perdido)
+                # Si hay amount en response_payload, usar ese como pérdida aproximada
+                loss_amount = Decimal('0.00')
+                if trade.response_payload:
+                    amount = trade.response_payload.get('amount') or trade.response_payload.get('risk_amount')
+                    if amount:
+                        loss_amount = -Decimal(str(amount))
+                elif trade.request_payload:
+                    # Intentar obtener amount desde request_payload
+                    position_sizing = trade.request_payload.get('position_sizing', {})
+                    if position_sizing:
+                        amount = position_sizing.get('risk_amount') or position_sizing.get('amount')
+                        if amount:
+                            loss_amount = -Decimal(str(amount))
+                    else:
+                        amount = trade.request_payload.get('amount') or trade.request_payload.get('stake')
+                        if amount:
+                            loss_amount = -Decimal(str(amount))
+                elif trade.size:
+                    # Usar el campo size del modelo
+                    loss_amount = -Decimal(str(trade.size))
+                
+                # Marcar como perdido
+                trade.status = 'lost'
+                trade.pnl = loss_amount
+                
+                # Guardar información adicional
+                if not trade.response_payload:
+                    trade.response_payload = {}
+                trade.response_payload['marked_as_expired'] = True
+                trade.response_payload['marked_at'] = timezone.now().isoformat()
+                
+                trade.save()
+                
+                marked_count += 1
+                total_pnl += loss_amount
+                
+            except Exception as e:
+                # Si hay error con un trade específico, continuar con los demás
+                print(f"Error marcando trade {trade.id}: {e}")
+                continue
+        
+        return JsonResponse({
+            'success': True,
+            'message': f'Marcados {marked_count} trades como expirados/perdidos',
+            'marked_count': marked_count,
+            'total_pnl': float(total_pnl)
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
