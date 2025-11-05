@@ -533,6 +533,9 @@
                             <button class="btn btn-danger btn-sm" onclick="closeAllTrades()" id="closeAllBtn">
                                 <i class="fas fa-times-circle"></i> Cerrar Todos
                             </button>
+                            <button class="btn btn-warning btn-sm" onclick="markAllAsExpired()" id="markExpiredBtn" title="Marcar todos los trades como expirados/perdidos (sin intentar cerrarlos en Deriv)">
+                                <i class="fas fa-exclamation-triangle"></i> Marcar como Expirados
+                            </button>
                         </div>
                     </div>
                     <div id="activeTradesContainer">
@@ -1204,6 +1207,69 @@
                     btn.disabled = false;
                     btn.innerHTML = originalHtml;
                     showAlert(`❌ Error de conexión al cerrar trades: ${error.message}`, 'error');
+                });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error al cargar trades', 'error');
+            });
+    }
+    
+    function markAllAsExpired() {
+        // Cargar los trades para ver cuántos hay
+        fetch('{% url "engine:active-trades" %}')
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    showAlert('Error al cargar trades: ' + (data.error || 'Error desconocido'), 'error');
+                    return;
+                }
+                
+                const trades = data.trades || [];
+                if (trades.length === 0) {
+                    showAlert('No hay trades activos para marcar', 'warning');
+                    return;
+                }
+                
+                const count = trades.length;
+                if (!confirm(`¿Está seguro de que desea marcar TODOS los ${count} trade(s) como EXPIRADOS/PERDIDOS?\n\nEsto NO intentará cerrarlos en Deriv, solo los marcará como perdidos en la base de datos.\n\nEsta acción no se puede deshacer.`)) {
+                    return;
+                }
+                
+                const btn = document.getElementById('markExpiredBtn');
+                const originalHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Marcando...';
+                
+                fetch('{% url "engine:mark-all-expired" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    
+                    if (data.success) {
+                        let message = `✅ ${data.message}\n\n`;
+                        message += `📊 Resumen:\n`;
+                        message += `  • Total procesados: ${data.marked_count}\n`;
+                        message += `  • P&L Total: $${parseFloat(data.total_pnl || 0).toFixed(2)}`;
+                        
+                        showAlert(message, 'success');
+                        loadActiveTrades(); // Recargar lista
+                    } else {
+                        showAlert(`❌ Error: ${data.error || 'Error desconocido'}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                    showAlert(`❌ Error de conexión: ${error.message}`, 'error');
                 });
             })
             .catch(error => {

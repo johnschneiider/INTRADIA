@@ -15,7 +15,8 @@ from .views import (
     trading_loop_control_api, 
     active_trades_api, 
     close_trade_api,
-    close_all_trades_api
+    close_all_trades_api,
+    mark_all_expired_api
 )
 
 app_name = 'engine'
@@ -37,5 +38,6 @@ urlpatterns = [
     path('api/trades/active/', active_trades_api, name='active-trades'),
     path('api/trades/close/', close_trade_api, name='close-trade'),
     path('api/trades/close-all/', close_all_trades_api, name='close-all-trades'),
+    path('api/trades/mark-all-expired/', mark_all_expired_api, name='mark-all-expired'),
 ]
 
