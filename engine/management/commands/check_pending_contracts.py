@@ -49,6 +49,11 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR('❌ No se pudo autenticar con Deriv API'))
             return
         
+        # Inicializar contadores
+        updated_count = 0
+        error_count = 0
+        expired_count = 0
+        
         # Obtener contratos pendientes/activos
         if force:
             # Verificar todos los contratos pendientes/activos
@@ -97,10 +102,6 @@ class Command(BaseCommand):
             return
         
         self.stdout.write(f'🔍 Verificando {total_trades} contrato(s) pendiente(s)...')
-        
-        updated_count = 0
-        error_count = 0
-        expired_count = 0
         
         for trade in pending_trades:
             try:
