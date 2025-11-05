@@ -566,9 +566,27 @@ class TickTradingLoop:
                 final_risk = risk_check.adjusted_size if risk_check.adjusted_size else adjusted_base_risk
                 protection_applied = risk_check.protection_applied
             
-            # Monto dinámico por símbolo según rendimiento horario (score 0..1 -> $0.35..$1.00)
-            score = self.symbol_priorities.get(symbol, 0.5)
-            amount = 0.35 + (0.65 * float(score))
+            # Monto dinámico basado en desempeño de últimos 20 trades del activo específico
+            # Obtener score de desempeño del símbolo (últimos 20 trades)
+            symbol_perf = self.adaptive_filter_manager.calculate_symbol_performance(lookback=20)
+            
+            if symbol in symbol_perf:
+                # Usar score del activo específico (0-1) -> $0.35 - $1.00
+                score = symbol_perf[symbol]['score']
+                amount = 0.35 + (0.65 * float(score))
+                print(f"  💰 {symbol}: Score últimos 20 trades = {score:.3f} → Monto = ${amount:.2f}")
+            else:
+                # Si no hay suficientes trades del activo, usar score promedio o mínimo
+                # Calcular promedio de scores de todos los símbolos con datos
+                if symbol_perf:
+                    avg_score = sum(p['score'] for p in symbol_perf.values()) / len(symbol_perf)
+                    amount = 0.35 + (0.65 * float(avg_score))
+                    print(f"  ⚠️ {symbol}: Sin datos suficientes, usando score promedio = {avg_score:.3f} → Monto = ${amount:.2f}")
+                else:
+                    # Si no hay ningún dato, usar mínimo
+                    amount = 0.35
+                    print(f"  ⚠️ {symbol}: Sin datos históricos, usando monto mínimo = ${amount:.2f}")
+            
             amount = round(amount, 2)
 
             # En recuperación: bajar un 20% adicional el tamaño, respetando $0.35
