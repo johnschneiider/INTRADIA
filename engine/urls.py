@@ -14,7 +14,8 @@ from .views import (
     services_logs_api, 
     trading_loop_control_api, 
     active_trades_api, 
-    close_trade_api
+    close_trade_api,
+    close_all_trades_api
 )
 
 app_name = 'engine'
@@ -35,5 +36,6 @@ urlpatterns = [
     path('api/trading-loop/control/', trading_loop_control_api, name='trading-loop-control'),
     path('api/trades/active/', active_trades_api, name='active-trades'),
     path('api/trades/close/', close_trade_api, name='close-trade'),
+    path('api/trades/close-all/', close_all_trades_api, name='close-all-trades'),
 ]
 

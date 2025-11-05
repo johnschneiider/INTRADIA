@@ -526,9 +526,14 @@
                             <i class="fas fa-chart-line me-2"></i>
                             Trades Activos/Pendientes
                         </h2>
-                        <button class="btn btn-primary btn-sm" onclick="loadActiveTrades()">
-                            <i class="fas fa-sync"></i> Actualizar
-                        </button>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-primary btn-sm" onclick="loadActiveTrades()">
+                                <i class="fas fa-sync"></i> Actualizar
+                            </button>
+                            <button class="btn btn-danger btn-sm" onclick="closeAllTrades()" id="closeAllBtn">
+                                <i class="fas fa-times-circle"></i> Cerrar Todos
+                            </button>
+                        </div>
                     </div>
                     <div id="activeTradesContainer">
                         <div class="text-center text-muted">
@@ -1115,6 +1120,74 @@
             btn.disabled = false;
             btn.innerHTML = originalHtml;
         });
+    }
+    
+    function closeAllTrades() {
+        // Primero cargar los trades para ver cuántos hay
+        fetch('{% url "engine:active-trades" %}')
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    showAlert('Error al cargar trades: ' + (data.error || 'Error desconocido'), 'error');
+                    return;
+                }
+                
+                const trades = data.trades || [];
+                if (trades.length === 0) {
+                    showAlert('No hay trades activos para cerrar', 'warning');
+                    return;
+                }
+                
+                const count = trades.length;
+                if (!confirm(`¿Está seguro de que desea cerrar TODOS los ${count} trade(s) activo(s)?\n\nEsta acción no se puede deshacer.`)) {
+                    return;
+                }
+                
+                const btn = document.getElementById('closeAllBtn');
+                const originalHtml = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cerrando...';
+                
+                fetch('{% url "engine:close-all-trades" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        let message = `✅ ${data.message}\n`;
+                        message += `Cerrados: ${data.closed_count} | Fallidos: ${data.failed_count}\n`;
+                        message += `P&L Total: $${parseFloat(data.total_pnl || 0).toFixed(2)}`;
+                        
+                        if (data.errors && data.errors.length > 0) {
+                            message += '\n\nErrores:\n' + data.errors.slice(0, 5).join('\n');
+                            if (data.errors.length > 5) {
+                                message += `\n... y ${data.errors.length - 5} más`;
+                            }
+                        }
+                        
+                        showAlert(message, data.failed_count > 0 ? 'warning' : 'success');
+                        loadActiveTrades(); // Recargar lista
+                    } else {
+                        showAlert(`Error al cerrar trades: ${data.error}`, 'error');
+                        btn.disabled = false;
+                        btn.innerHTML = originalHtml;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showAlert('Error de conexión al cerrar trades', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                });
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showAlert('Error al cargar trades', 'error');
+            });
     }
     
     function getCookie(name) {
