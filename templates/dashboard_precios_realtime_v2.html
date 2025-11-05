@@ -889,13 +889,12 @@
         connect();
         
         // Cargar datos iniciales
+        // Actualizar balance inmediatamente y luego cada 2 segundos para tiempo real
         updateBalance();
+        setInterval(updateBalance, 2000);
+        
+        // Actualizar trades inmediatamente y luego cada 2 segundos
         updateTrades();
-        
-        // Actualizar balance cada 5 segundos
-        setInterval(updateBalance, 5000);
-        
-        // Actualizar trades cada 2 segundos
         setInterval(updateTrades, 2000);
     });
 </script>
