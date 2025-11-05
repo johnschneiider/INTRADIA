@@ -797,30 +797,14 @@
         connect();
         
         // Cargar datos iniciales
-        fetchLatestPrice('R_10');
-        loadTicksHistory('R_10', 50);
         updateBalance();
         updateTrades();
-        
-        // Polling para precio
-        setInterval(() => {
-            if (selectedSymbol) {
-                fetchLatestPrice(selectedSymbol);
-            }
-        }, 2000);
         
         // Actualizar balance cada 5 segundos
         setInterval(updateBalance, 5000);
         
         // Actualizar trades cada 2 segundos
         setInterval(updateTrades, 2000);
-        
-        // Recargar histórico cada 30 segundos
-        setInterval(() => {
-            if (selectedSymbol) {
-                loadTicksHistory(selectedSymbol, 50);
-            }
-        }, 30000);
     });
 </script>
 {% endblock %}
