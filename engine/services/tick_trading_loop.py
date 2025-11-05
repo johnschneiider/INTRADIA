@@ -280,21 +280,88 @@ class TickTradingLoop:
             
             # NUEVA LÓGICA: Si winrate de últimos 20 trades < 52%, usar solo top 5 símbolos
             allowed_symbols = None  # None = todos los símbolos permitidos
+            min_score_threshold = 0.5  # Umbral mínimo de score para símbolos permitidos
+            
+            # Inicializar contador de rechazos consecutivos si no existe
+            if not hasattr(self, '_consecutive_rejections_count'):
+                self._consecutive_rejections_count = 0
+            if not hasattr(self, '_last_executed_trade_time'):
+                self._last_executed_trade_time = None
+            
             if metrics.win_rate_recent < 0.52 and len(symbol_performance) > 0:
                 # Obtener top 5 símbolos por desempeño
                 top_symbols = self.adaptive_filter_manager.get_top_symbols_by_performance(lookback=20, top_n=5)
                 allowed_symbols = [s[0] for s in top_symbols]
-                print(f"📊 Winrate últimos 20 trades: {metrics.win_rate_recent:.1%} < 52%. Usando solo top 5 símbolos: {allowed_symbols}")
+                
+                # MECANISMO DE SALIDA: Si han pasado más de 10 minutos sin ejecutar trades
+                # o hay más de 50 rechazos consecutivos, relajar temporalmente los filtros
+                time_since_last_trade = None
+                if self._last_executed_trade_time:
+                    time_since_last_trade = (timezone.now() - self._last_executed_trade_time).total_seconds()
+                
+                should_relax = False
+                relax_reason = ""
+                
+                # Condición 1: Más de 10 minutos sin ejecutar trades
+                if time_since_last_trade and time_since_last_trade > 600:  # 10 minutos
+                    should_relax = True
+                    relax_reason = f"más de 10 minutos sin trades ({int(time_since_last_trade/60)} min)"
+                
+                # Condición 2: Más de 50 rechazos consecutivos por este filtro
+                elif self._consecutive_rejections_count >= 50:
+                    should_relax = True
+                    relax_reason = f"{self._consecutive_rejections_count} rechazos consecutivos"
+                
+                if should_relax:
+                    # Relajar filtros: permitir el mejor símbolo disponible aunque no esté en top 5
+                    # o reducir el umbral de score
+                    if symbol_performance:
+                        # Encontrar el mejor símbolo disponible (mayor score)
+                        best_symbol = max(symbol_performance.items(), key=lambda x: x[1]['score'])
+                        best_symbol_name, best_symbol_data = best_symbol
+                        
+                        # Si el símbolo actual es el mejor disponible, permitirlo
+                        if symbol == best_symbol_name:
+                            print(f"🔄 Relajando filtros ({relax_reason}). Permitiendo mejor símbolo: {best_symbol_name} (score: {best_symbol_data['score']:.2f})")
+                            allowed_symbols = [best_symbol_name]  # Permitir solo el mejor
+                            self._consecutive_rejections_count = 0  # Resetear contador
+                        else:
+                            # Si no es el mejor, pero tiene un score razonable, también permitirlo
+                            symbol_score = symbol_performance.get(symbol, {}).get('score', 0)
+                            if symbol_score >= 0.4:  # Reducir umbral a 0.4
+                                print(f"🔄 Relajando filtros ({relax_reason}). Permitiendo {symbol} (score: {symbol_score:.2f})")
+                                # Permitir este símbolo aunque no esté en top 5
+                                allowed_symbols = allowed_symbols + [symbol] if allowed_symbols else [symbol]
+                                self._consecutive_rejections_count = 0  # Resetear contador
+                            else:
+                                # Aún no cumple, incrementar contador
+                                self._consecutive_rejections_count += 1
+                        min_score_threshold = 0.4  # Reducir umbral temporalmente
+                    else:
+                        # Si no hay datos de performance, desactivar filtro temporalmente
+                        print(f"🔄 Relajando filtros ({relax_reason}). Sin datos de performance, desactivando filtro temporalmente")
+                        allowed_symbols = None
+                        self._consecutive_rejections_count = 0
+                else:
+                    print(f"📊 Winrate últimos 20 trades: {metrics.win_rate_recent:.1%} < 52%. Usando solo top 5 símbolos: {allowed_symbols}")
             
             # CONTROL DE PÉRDIDAS: Si winrate < 52%, solo permitir top 5 símbolos
             if allowed_symbols is not None and symbol not in allowed_symbols:
                 symbol_score = self.symbol_priorities.get(symbol, 0)
                 top_symbols_str = ', '.join(allowed_symbols[:3]) + ('...' if len(allowed_symbols) > 3 else '')
+                
+                # Incrementar contador de rechazos
+                self._consecutive_rejections_count += 1
+                
                 return {
                     'status': 'rejected',
                     'reason': 'low_winrate_filter',
                     'message': f'⏸️ Winrate {metrics.win_rate_recent:.1%} < 52%. Solo top 5 símbolos permitidos. {symbol} (score: {symbol_score:.2f}) no está en la lista.'
                 }
+            else:
+                # Si el símbolo está permitido, resetear contador
+                if allowed_symbols is not None:
+                    self._consecutive_rejections_count = 0
             
             # Verificar pausa solo en casos extremos (drawdown > 15% o racha >= 5)
             pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=None)
@@ -702,6 +769,9 @@ class TickTradingLoop:
                 # El trade se registró como pending, la actualización de martingala
                 # se hará cuando el contrato expire y se actualice el status
                 self._last_executed_time = timezone.now()
+                # Resetear contador de rechazos consecutivos cuando se ejecuta un trade
+                if hasattr(self, '_consecutive_rejections_count'):
+                    self._consecutive_rejections_count = 0
             
             # Guardar información de riesgo en el resultado para logging
             if result.get('accepted'):
