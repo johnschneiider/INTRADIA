@@ -1192,14 +1192,21 @@ def close_all_trades_api(request):
             
             # Intentar obtener contract_id del trade (múltiples formas)
             try:
-                # 1. Desde response_payload
+                # 1. Desde response_payload (múltiples ubicaciones)
                 if trade.response_payload:
                     if isinstance(trade.response_payload, dict):
-                        contract_id = (
-                            trade.response_payload.get('contract_id') or
-                            trade.response_payload.get('order_id') or
-                            (trade.response_payload.get('buy', {}).get('contract_id') if isinstance(trade.response_payload.get('buy'), dict) else None)
-                        )
+                        # Primero intentar contract_id directo
+                        contract_id = trade.response_payload.get('contract_id')
+                        
+                        # Si no hay, intentar desde objeto 'buy'
+                        if not contract_id and 'buy' in trade.response_payload:
+                            buy_obj = trade.response_payload.get('buy')
+                            if isinstance(buy_obj, dict):
+                                contract_id = buy_obj.get('contract_id')
+                        
+                        # Si aún no hay, usar order_id como fallback (en Deriv a veces son iguales)
+                        if not contract_id:
+                            contract_id = trade.response_payload.get('order_id')
                 
                 # 2. Desde request_payload
                 if not contract_id and trade.request_payload:
@@ -1220,22 +1227,26 @@ def close_all_trades_api(request):
                     continue
                 
                 # Cerrar el contrato
+                # Intentar cerrar el contrato
                 result = client.sell_contract(str(contract_id))
                 
                 if result.get('error'):
                     failed_count += 1
                     error_msg = result.get('error', {}).get('message', str(result.get('error'))) if isinstance(result.get('error'), dict) else str(result.get('error'))
                     errors.append(f"Trade {trade.id} ({trade.symbol}): {error_msg}")
-                    # Marcar el trade como "lost" si falla
-                    try:
-                        trade.status = 'lost'
-                        trade.pnl = Decimal('0.00')
-                        if not trade.response_payload:
-                            trade.response_payload = {}
-                        trade.response_payload['sell_error'] = result.get('error')
-                        trade.save()
-                    except:
-                        pass
+                    
+                    # Si el error es que el contrato no existe o ya expiró, marcar como lost
+                    error_str = str(error_msg).lower()
+                    if any(keyword in error_str for keyword in ['not found', 'expired', 'invalid', 'does not exist']):
+                        try:
+                            trade.status = 'lost'
+                            trade.pnl = Decimal('0.00')
+                            if not trade.response_payload:
+                                trade.response_payload = {}
+                            trade.response_payload['sell_error'] = result.get('error')
+                            trade.save()
+                        except:
+                            pass
                     continue
                 
                 # Actualizar el trade en la base de datos
