@@ -471,9 +471,23 @@ class Command(BaseCommand):
                                 self.style.ERROR(f'  ❌ {symbol}: Error - {result.get("error", "unknown")}')
                             )
                     except Exception as e:
-                        self.stdout.write(
-                            self.style.ERROR(f'  ❌ Error en {symbol}: {e}')
-                        )
+                        import traceback
+                        error_msg = f'  ❌ Error en {symbol}: {type(e).__name__}: {e}'
+                        self.stdout.write(self.style.ERROR(error_msg))
+                        
+                        # Log completo para debugging
+                        import logging
+                        logger = logging.getLogger('trading_loop')
+                        logger.error(f"Error procesando símbolo {symbol}: {traceback.format_exc()}")
+                        
+                        # Si es un error crítico de BD, hacer pausa breve antes de continuar
+                        from django.db import OperationalError, DatabaseError
+                        if isinstance(e, (OperationalError, DatabaseError)):
+                            self.stdout.write(self.style.WARNING('  ⏸️ Pausa breve por error de BD...'))
+                            time.sleep(2)  # Pausa breve para que BD se recupere
+                        
+                        # Continuar con siguiente símbolo - no detener el loop
+                        continue
                 
                 # Mostrar resumen solo si hay actividad
                 if executed_count > 0 or rejected_count > 0:
@@ -504,6 +518,16 @@ class Command(BaseCommand):
                     # No detener el loop si falla la verificación
                     pass
                 
+                # Verificar trades huérfanos (cada 5 minutos aproximadamente)
+                # Trades que se ejecutaron en Deriv pero no están en BD
+                if not hasattr(self, '_last_orphan_check') or (timezone.now() - self._last_orphan_check).total_seconds() > 300:
+                    try:
+                        self._check_orphaned_trades(client)
+                        self._last_orphan_check = timezone.now()
+                    except Exception as e:
+                        # No detener el loop si falla la verificación
+                        pass
+                
                 self.stdout.write('=' * 60)
                 self.stdout.write('')
                 
@@ -513,6 +537,31 @@ class Command(BaseCommand):
         except KeyboardInterrupt:
             self.stdout.write(self.style.SUCCESS('\n\n⚠️  Deteniendo trading loop...'))
             return
+        except Exception as e:
+            # Capturar cualquier error no manejado para evitar crash del servidor
+            import traceback
+            import logging
+            logger = logging.getLogger('trading_loop')
+            
+            error_msg = f"❌ ERROR CRÍTICO NO MANEJADO en trading loop: {type(e).__name__}: {e}"
+            self.stdout.write(self.style.ERROR(error_msg))
+            logger.critical(f"{error_msg}\n{traceback.format_exc()}")
+            
+            # Esperar antes de reintentar para evitar loops infinitos de errores
+            self.stdout.write(self.style.WARNING('⏸️ Esperando 30 segundos antes de reintentar...'))
+            time.sleep(30)
+            
+            # Reintentar el loop (evitar crash completo)
+            self.stdout.write(self.style.SUCCESS('🔄 Reintentando trading loop...'))
+            # Recursivamente reintentar (pero limitar a 3 intentos para evitar loops infinitos)
+            if not hasattr(self, '_retry_count'):
+                self._retry_count = 0
+            self._retry_count += 1
+            if self._retry_count < 3:
+                self.handle(*args, **options)
+            else:
+                self.stdout.write(self.style.ERROR('❌ Demasiados errores consecutivos. Deteniendo...'))
+                raise
     
     def _check_pending_trades(self, client):
         """Verificar operaciones abiertas y actualizar su estado aunque se haya perdido la suscripción."""
@@ -577,4 +626,93 @@ class Command(BaseCommand):
                     
         except Exception as e:
             pass  # Error silencioso
+    
+    def _check_orphaned_trades(self, client):
+        """
+        Verificar si hay trades ejecutados en Deriv que no están registrados en BD.
+        Esto detecta casos donde el balance cambia pero no hay registros en OrderAudit.
+        """
+        try:
+            from monitoring.models import OrderAudit
+            from django.db.models import Q
+            import logging
+            logger = logging.getLogger('trading_loop')
+            
+            # Obtener balance actual
+            balance_info = client.get_balance()
+            if not balance_info or balance_info.get('error'):
+                return
+            
+            current_balance = Decimal(str(balance_info.get('balance', 0)))
+            
+            # Buscar trades muy recientes (últimos 5 minutos) que deberían estar en BD
+            recent_window = timezone.now() - timedelta(minutes=5)
+            
+            # Verificar si hay cambios de balance sin trades correspondientes
+            # Esto es una heurística: si el balance cambió significativamente pero no hay trades,
+            # podría haber un trade huérfano
+            
+            # Obtener trades de los últimos 5 minutos
+            recent_trades = OrderAudit.objects.filter(
+                timestamp__gte=recent_window
+            ).count()
+            
+            # Si no hay trades recientes pero el balance cambió, podría haber huérfanos
+            # Nota: Esta es una verificación básica. Una verificación más completa requeriría
+            # comparar el balance esperado vs el real, pero eso es complejo.
+            
+            # Verificar contratos abiertos en Deriv que no están en BD
+            try:
+                # Obtener todos los contratos abiertos de Deriv (si la API lo soporta)
+                open_contracts = client.get_open_positions() if hasattr(client, 'get_open_positions') else []
+                
+                if open_contracts:
+                    for contract in open_contracts:
+                        contract_id = contract.get('contract_id') or contract.get('id')
+                        if not contract_id:
+                            continue
+                        
+                        # Verificar si este contrato está en BD
+                        exists = OrderAudit.objects.filter(
+                            Q(response_payload__order_id=contract_id) |
+                            Q(response_payload__contains={'order_id': str(contract_id)})
+                        ).exists()
+                        
+                        if not exists:
+                            # Trade huérfano encontrado - intentar registrar
+                            logger.warning(f"⚠️ Trade huérfano detectado: Contract ID {contract_id}")
+                            self.stdout.write(
+                                self.style.WARNING(f'  ⚠️ Trade huérfano detectado: Contract ID {contract_id}')
+                            )
+                            
+                            # Intentar crear registro mínimo
+                            try:
+                                OrderAudit.objects.create(
+                                    timestamp=timezone.now() - timedelta(minutes=2),  # Aproximado
+                                    symbol=contract.get('symbol', 'UNKNOWN'),
+                                    action=contract.get('contract_type', 'unknown').lower(),
+                                    size=Decimal(str(contract.get('buy_price', '0.01'))),
+                                    price=Decimal(str(contract.get('entry_spot', '0'))),
+                                    status='active',
+                                    request_payload={'recovered': True, 'contract_id': contract_id},
+                                    response_payload={'order_id': contract_id, 'recovered': True},
+                                    accepted=True,
+                                    reason='orphan_recovery',
+                                    error_message='Trade recuperado automáticamente - no estaba en BD'
+                                )
+                                logger.info(f"✅ Trade huérfano recuperado: {contract_id}")
+                                self.stdout.write(
+                                    self.style.SUCCESS(f'  ✅ Trade huérfano recuperado: {contract_id}')
+                                )
+                            except Exception as recovery_error:
+                                logger.error(f"❌ No se pudo recuperar trade huérfano {contract_id}: {recovery_error}")
+            except Exception:
+                # Si get_open_positions no está disponible o falla, ignorar silenciosamente
+                pass
+                
+        except Exception as e:
+            import logging
+            logger = logging.getLogger('trading_loop')
+            logger.error(f"Error verificando trades huérfanos: {e}")
+            # No detener el loop si falla
 

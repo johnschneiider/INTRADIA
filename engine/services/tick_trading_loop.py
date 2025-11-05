@@ -1427,19 +1427,44 @@ class TickTradingLoop:
                 
                 error_message_final = ' | '.join(error_message_parts)
             
-            order = OrderAudit.objects.create(
-                timestamp=timezone.now(),
-                symbol=symbol,
-                action=signal.direction.lower(),  # 'call' o 'put'
-                size=size_value,  # Monto REAL usado
-                price=signal.entry_price,
-                status='pending' if result.get('accepted') else 'rejected',
-                request_payload=request_payload,
-                response_payload=response_payload,  # Ya incluye error_code y error_data si existen
-                accepted=result.get('accepted', False),
-                reason=result.get('reason', 'unknown') if not result.get('accepted') else '',
-                error_message=error_message_final  # Mensaje completo con código y mensaje
-            )
+            # Intentar guardar con retry para errores transitorios de BD
+            from django.db import transaction, OperationalError, DatabaseError
+            import time as time_module
+            
+            max_retries = 3
+            retry_delay = 0.5  # segundos
+            order = None
+            
+            for attempt in range(max_retries):
+                try:
+                    with transaction.atomic():
+                        order = OrderAudit.objects.create(
+                            timestamp=timezone.now(),
+                            symbol=symbol,
+                            action=signal.direction.lower(),  # 'call' o 'put'
+                            size=size_value,  # Monto REAL usado
+                            price=signal.entry_price,
+                            status='pending' if result.get('accepted') else 'rejected',
+                            request_payload=request_payload,
+                            response_payload=response_payload,  # Ya incluye error_code y error_data si existen
+                            accepted=result.get('accepted', False),
+                            reason=result.get('reason', 'unknown') if not result.get('accepted') else '',
+                            error_message=error_message_final  # Mensaje completo con código y mensaje
+                        )
+                    # Si llegamos aquí, el guardado fue exitoso
+                    break
+                except (OperationalError, DatabaseError) as db_error:
+                    # Error transitorio de BD - reintentar
+                    if attempt < max_retries - 1:
+                        print(f"⚠️ Error de BD (intento {attempt + 1}/{max_retries}): {db_error}. Reintentando...")
+                        time_module.sleep(retry_delay * (attempt + 1))  # Backoff exponencial
+                        continue
+                    else:
+                        # Último intento falló - propagar para manejo de recuperación
+                        raise
+                except Exception as e:
+                    # Otro tipo de error - no reintentar, propagar
+                    raise
             
             # Guardar risk_amount si está disponible (para uso por risk_protection)
             if position_size_info and hasattr(order, 'risk_amount'):
@@ -1450,7 +1475,53 @@ class TickTradingLoop:
                     pass  # Si el campo no existe, ignorar
                     
         except Exception as e:
-            print(f"Error recording trade: {e}")
+            # Logging persistente con información completa del error
+            import logging
+            import traceback
+            logger = logging.getLogger('trading_loop')
+            
+            error_details = {
+                'symbol': symbol,
+                'error_type': type(e).__name__,
+                'error_message': str(e),
+                'traceback': traceback.format_exc(),
+                'result_accepted': result.get('accepted', False),
+                'result_status': result.get('status', 'unknown'),
+                'contract_id': result.get('order_id') if result.get('accepted') else None
+            }
+            
+            # Log completo con traceback
+            logger.error(f"❌ CRÍTICO: Error registrando trade en BD: {error_details}")
+            print(f"❌ CRÍTICO: Error registrando trade {symbol} en BD: {type(e).__name__}: {e}")
+            print(f"   Trade aceptado en Deriv: {result.get('accepted')}, Contract ID: {result.get('order_id')}")
+            traceback.print_exc()
+            
+            # Si el trade fue aceptado en Deriv pero falló al guardar, intentar recuperación
+            if result.get('accepted') and result.get('order_id'):
+                try:
+                    # Asegurar que OrderAudit está importado
+                    from monitoring.models import OrderAudit as OrderAuditModel
+                    from django.db import transaction
+                    with transaction.atomic():
+                        fallback_order = OrderAuditModel.objects.create(
+                            timestamp=timezone.now(),
+                            symbol=symbol,
+                            action=signal.direction.lower() if hasattr(signal, 'direction') else 'unknown',
+                            size=Decimal('0.01'),  # Monto mínimo como fallback
+                            price=signal.entry_price if hasattr(signal, 'entry_price') else Decimal('0'),
+                            status='pending',
+                            request_payload={'error': 'fallback_save', 'original_error': str(e)},
+                            response_payload={'order_id': result.get('order_id'), 'accepted': True},
+                            accepted=True,
+                            reason='fallback_recovery',
+                            error_message=f'Recuperado de error: {type(e).__name__}'
+                        )
+                        logger.warning(f"✅ Trade recuperado con guardado fallback: {fallback_order.id} para {symbol}")
+                        print(f"✅ Trade recuperado con guardado fallback para {symbol}")
+                except Exception as recovery_error:
+                    logger.critical(f"❌❌ FALLO CRÍTICO: No se pudo recuperar trade {symbol} (Contract ID: {result.get('order_id')}): {recovery_error}")
+                    print(f"❌❌ FALLO CRÍTICO: No se pudo recuperar trade {symbol}")
+                    # El trade existe en Deriv pero no en BD - esto requiere atención manual
 
 
 def process_tick_based_trading(symbol: str, use_statistical: bool = True) -> Optional[Dict[str, Any]]:
