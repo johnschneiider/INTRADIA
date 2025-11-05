@@ -780,13 +780,24 @@
     // Actualizar balance
     async function updateBalance() {
         try {
+            console.log('🔄 Intentando obtener balance...');
             const response = await fetch('/engine/balance/');
             
+            console.log('📡 Respuesta recibida:', {
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok,
+                headers: Object.fromEntries(response.headers.entries())
+            });
+            
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const errorText = await response.text();
+                console.error('❌ Error HTTP:', response.status, errorText);
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText.substring(0, 200)}`);
             }
             
             const data = await response.json();
+            console.log('📊 Datos de balance recibidos:', data);
             
             // Actualizar estado de conexión basado en la respuesta
             const connectionStatusNav = document.getElementById('connectionStatusNav');
