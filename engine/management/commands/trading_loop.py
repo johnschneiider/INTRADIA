@@ -495,6 +495,15 @@ class Command(BaseCommand):
                     recovery_mode = True
                     self.stdout.write(self.style.WARNING(f'🟡 MODO RECUPERACIÓN (continúa): {reason}'))
                 
+                # VERIFICAR CONTRATOS PENDIENTES/ACTIVOS cada ciclo (cada ~10 segundos)
+                # Esto previene que se queden "pegados"
+                try:
+                    if client:
+                        self._check_pending_trades(client)
+                except Exception as e:
+                    # No detener el loop si falla la verificación
+                    pass
+                
                 self.stdout.write('=' * 60)
                 self.stdout.write('')
                 
