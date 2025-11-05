@@ -403,7 +403,7 @@
                     <div class="metric-label" style="font-size: 1.2rem; margin-bottom: 1rem;">
                         <i class="fas fa-wallet"></i> Balance Actual
                     </div>
-                    <div class="metric-value" id="balanceAmount" style="font-size: 3.5rem; font-weight: 800; color: var(--accent-color);">
+                    <div class="metric-value" id="mainBalanceAmount" style="font-size: 3.5rem; font-weight: 800; color: var(--accent-color);">
                         $0.00
                     </div>
                 </div>
@@ -787,10 +787,27 @@
         try {
             const response = await fetch('/engine/balance/');
             const data = await response.json();
-            if (data.success) {
-                const balanceElement = document.getElementById('balanceAmount');
-                if (balanceElement) {
-                    balanceElement.textContent = '$' + parseFloat(data.balance).toFixed(2);
+            if (data.success && data.balance !== undefined) {
+                const balance = parseFloat(data.balance);
+                const formattedBalance = '$' + balance.toFixed(2);
+                
+                // Actualizar tarjeta principal de balance (la grande)
+                const mainBalanceElement = document.getElementById('mainBalanceAmount');
+                if (mainBalanceElement) {
+                    mainBalanceElement.textContent = formattedBalance;
+                    
+                    // Efecto visual de actualización en tiempo real
+                    mainBalanceElement.style.transition = 'all 0.3s ease';
+                    mainBalanceElement.style.transform = 'scale(1.05)';
+                    setTimeout(() => {
+                        mainBalanceElement.style.transform = 'scale(1)';
+                    }, 300);
+                }
+                
+                // También actualizar el balance en el header (si existe)
+                const headerBalanceElement = document.getElementById('balanceAmount');
+                if (headerBalanceElement) {
+                    headerBalanceElement.textContent = formattedBalance;
                 }
             }
         } catch (error) {
