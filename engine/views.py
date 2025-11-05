@@ -187,8 +187,8 @@ def get_trades(request):
             'completed': completed,
             'metrics': {
                 'total_pnl': total_pnl,
-                'win_rate': win_rate_recent if 'win_rate_recent' in locals() else (win_rate / 100),  # Winrate últimos 20 trades
-                'win_rate_pct': (win_rate_recent * 100) if 'win_rate_recent' in locals() else win_rate,  # Mantener porcentaje para display
+                'win_rate': win_rate_recent,  # Winrate últimos 20 trades (decimal 0-1)
+                'win_rate_pct': win_rate_recent * 100,  # Mantener porcentaje para display
                 'drawdown_pct': drawdown_pct,
                 'total_trades': total_trades,
                 'active_trades': active_trades

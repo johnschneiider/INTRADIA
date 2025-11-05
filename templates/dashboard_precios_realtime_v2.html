@@ -642,7 +642,7 @@
         
         if (!stateEl || !detailsEl || !cardEl) return;
         
-        const winrate = metrics.win_rate || 0;
+        const winrate = (metrics.win_rate || 0);  // Ya viene como decimal (0-1)
         const drawdown = metrics.drawdown_pct || 0;
         
         let state = 'normal';
