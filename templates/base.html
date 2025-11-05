@@ -120,6 +120,20 @@
             background: rgba(99, 102, 241, 0.15);
         }
         
+        /* Estado de conexión en navbar */
+        #connectionStatusNav.connected {
+            color: var(--success-color) !important;
+        }
+        
+        #connectionStatusNav.disconnected {
+            color: var(--danger-color) !important;
+        }
+        
+        #connectionStatusNav i {
+            font-size: 0.7rem;
+            margin-right: 0.3rem;
+        }
+        
         .btn-primary-custom {
             background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
             border: none;
@@ -260,6 +274,11 @@
                             </a></li>
                             {% endif %}
                         </ul>
+                    </li>
+                    <li class="nav-item">
+                        <span id="connectionStatusNav" class="nav-link disconnected" style="cursor: default;">
+                            <i class="fas fa-circle"></i> <span class="d-none d-md-inline">Desconectado</span>
+                        </span>
                     </li>
                     {% if user.is_authenticated %}
                     <li class="nav-item dropdown">
