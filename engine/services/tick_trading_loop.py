@@ -584,6 +584,7 @@ class TickTradingLoop:
                     else:
                         low, high = (0.0015, 0.0550)
                     if not (low <= float(atr_ratio_chk) <= high) and float(getattr(signal, 'confidence', 0)) >= 0.75:
+                        # Aplicar reducción adicional en drawdown, manteniendo rango $0.35-$1.00
                         amount = max(0.35, round(amount * 0.8, 2))
             except Exception:
                 pass
