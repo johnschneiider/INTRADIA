@@ -392,38 +392,21 @@
 
         <!-- Dashboard Header -->
         <div class="dashboard-header-card">
-            <h1><i class="fas fa-chart-line"></i> Trading en Tiempo Real</h1>
+            <h1><i class="fas fa-chart-line"></i> Dashboard de Trading</h1>
             <p class="text-secondary mb-0">Sistema de trading automatizado con actualizaciones instantáneas</p>
         </div>
 
-        <!-- Symbol Selector -->
-        <div class="symbol-selector">
-            <h4><i class="fas fa-exchange-alt"></i> Seleccionar Instrumento</h4>
-            <div id="symbolButtons">
-                <button class="symbol-btn active" onclick="selectSymbol('R_10'); return false;">R_10</button>
-                <button class="symbol-btn" onclick="selectSymbol('R_25'); return false;">R_25</button>
-                <button class="symbol-btn" onclick="selectSymbol('R_50'); return false;">R_50</button>
-                <button class="symbol-btn" onclick="selectSymbol('CRASH1000'); return false;">CRASH1000</button>
-                <button class="symbol-btn" onclick="selectSymbol('BOOM1000'); return false;">BOOM1000</button>
-                <button class="symbol-btn" onclick="selectSymbol('EURUSD'); return false;">EURUSD</button>
-                <button class="symbol-btn" onclick="selectSymbol('GBPUSD'); return false;">GBPUSD</button>
-                <button class="symbol-btn" onclick="selectSymbol('GOLD'); return false;">GOLD</button>
-            </div>
-        </div>
-
-        <!-- Price Display -->
-        <div class="price-card floating">
-            <h3 class="section-header">
-                <i class="fas fa-coins"></i>
-                <span>Precio en Tiempo Real</span>
-            </h3>
-            <div class="price-display" id="currentPrice">$0.00</div>
-            <div class="price-change" id="priceChange">
-                <span id="priceChangeValue">--</span>
-                <span id="priceChangePct">(0.00%)</span>
-            </div>
-            <div class="text-center text-muted mt-3" id="lastUpdate">
-                <small><i class="fas fa-clock"></i> Última actualización: --</small>
+        <!-- Balance Prominente -->
+        <div class="row g-4 mb-4">
+            <div class="col-12">
+                <div class="metric-card text-center" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(6, 182, 212, 0.2)); border: 2px solid var(--primary-color);">
+                    <div class="metric-label" style="font-size: 1.2rem; margin-bottom: 1rem;">
+                        <i class="fas fa-wallet"></i> Balance Actual
+                    </div>
+                    <div class="metric-value" id="balanceAmount" style="font-size: 3.5rem; font-weight: 800; color: var(--accent-color);">
+                        $0.00
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -455,24 +438,24 @@
             </div>
         </div>
 
-        <!-- Orders Row -->
+        <!-- Orders Row - Prioridad a las tablas -->
         <div class="row g-4 mb-4">
             <!-- Active Orders -->
-            <div class="col-md-6">
-                <div class="metric-card">
+            <div class="col-12 col-lg-6">
+                <div class="metric-card" style="min-height: 500px;">
                     <h3 class="section-header">
                         <i class="fas fa-play-circle"></i>
                         <span>Operaciones Activas</span>
                     </h3>
-                    <div class="orders-container" id="activeOrdersContainer">
+                    <div class="orders-container" id="activeOrdersContainer" style="max-height: 450px; overflow-y: auto;">
                         <p class="text-center text-muted">Sin operaciones activas</p>
                     </div>
                 </div>
             </div>
 
             <!-- Closed Orders -->
-            <div class="col-md-6">
-                <div class="metric-card">
+            <div class="col-12 col-lg-6">
+                <div class="metric-card" style="min-height: 500px;">
                     <h3 class="section-header">
                         <i class="fas fa-check-circle"></i>
                         <span>Operaciones Finalizadas</span>
@@ -480,35 +463,10 @@
                             <i class="fas fa-trash-alt"></i> Limpiar
                         </button>
                     </h3>
-                    <div class="orders-container" id="closedOrdersContainer">
+                    <div class="orders-container" id="closedOrdersContainer" style="max-height: 450px; overflow-y: auto;">
                         <p class="text-center text-muted">Sin operaciones cerradas</p>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        <!-- Ticks History -->
-        <div class="metric-card">
-            <h3 class="section-header">
-                <i class="fas fa-table"></i>
-                <span>Histórico de Precios (Últimos Ticks)</span>
-            </h3>
-            <div class="orders-container" id="ticksHistoryContainer">
-                <table class="table table-dark table-striped">
-                    <thead>
-                        <tr>
-                            <th>Símbolo</th>
-                            <th>Precio</th>
-                            <th>Volumen</th>
-                            <th>Fecha/Hora</th>
-                        </tr>
-                    </thead>
-                    <tbody id="ticksHistoryTable">
-                        <tr>
-                            <td colspan="4" class="text-center text-muted">Cargando datos...</td>
-                        </tr>
-                    </tbody>
-                </table>
             </div>
         </div>
     </div>
@@ -518,8 +476,6 @@
 {% block extra_js %}
 <script>
     // Variables globales
-    let selectedSymbol = 'R_10';
-    let lastPrice = null;
     let ws = null;
     let reconnectAttempts = 0;
     
