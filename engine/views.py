@@ -36,10 +36,11 @@ def get_trades(request):
         # Historial persistente desde la BD (no limitar a 30 minutos)
         # Mostrar las últimas 200 operaciones, incluyendo finalizadas antiguas
         # Incluir TODOS los trades sin filtrar por estado
-        trades = OrderAudit.objects.all().order_by('-timestamp')[:200]
+        # Usar list() para evaluar el QuerySet y obtener todos los resultados
+        trades = list(OrderAudit.objects.all().order_by('-timestamp')[:200])
         
         # Debug: mostrar cantidad de trades encontrados
-        print(f"📊 Total trades encontrados: {trades.count()}")
+        print(f"📊 Total trades encontrados: {len(trades)}")
         
         active = []
         completed = []
