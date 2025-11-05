@@ -476,6 +476,9 @@
                     <h3 class="section-header">
                         <i class="fas fa-check-circle"></i>
                         <span>Operaciones Finalizadas</span>
+                        <button class="btn btn-sm btn-danger ms-2" onclick="clearCompletedTrades()" title="Limpiar operaciones finalizadas y métricas">
+                            <i class="fas fa-trash-alt"></i> Limpiar
+                        </button>
                     </h3>
                     <div class="orders-container" id="closedOrdersContainer">
                         <p class="text-center text-muted">Sin operaciones cerradas</p>
@@ -781,6 +784,53 @@
         } catch (error) {
             console.error('Error fetching trades:', error);
         }
+    }
+    
+    // Limpiar operaciones finalizadas
+    async function clearCompletedTrades() {
+        if (!confirm('¿Está seguro de que desea limpiar TODAS las operaciones finalizadas y resetear las métricas?\n\nEsta acción NO se puede deshacer.')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/engine/api/clear-completed-trades/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert(`✅ ${data.message}\n\nOperaciones eliminadas: ${data.deleted_count}`);
+                // Recargar trades
+                updateTrades();
+                // Recargar balance
+                updateBalance();
+            } else {
+                alert(`❌ Error: ${data.error || 'Error desconocido'}`);
+            }
+        } catch (error) {
+            console.error('Error clearing trades:', error);
+            alert(`❌ Error de conexión: ${error.message}`);
+        }
+    }
+    
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
     }
     
     // Inicializar

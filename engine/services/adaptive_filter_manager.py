@@ -435,4 +435,99 @@ class AdaptiveFilterManager:
             'should_pause': should_pause,
             'allowed_symbol': allowed_symbol
         }
+    
+    def calculate_symbol_performance(self, lookback: int = 20) -> Dict[str, Dict[str, float]]:
+        """
+        Calcular desempeño por símbolo basado en los últimos N trades
+        
+        Args:
+            lookback: Número de trades a analizar (default: 20)
+            
+        Returns:
+            Diccionario con métricas por símbolo: {
+                'SYMBOL': {
+                    'win_rate': 0.65,
+                    'total_pnl': 15.50,
+                    'avg_pnl': 0.78,
+                    'trades_count': 20,
+                    'score': 0.75  # Score combinado (0-1)
+                }
+            }
+        """
+        try:
+            from decimal import Decimal
+            
+            # Obtener últimos N trades finalizados
+            recent_trades = list(
+                OrderAudit.objects.filter(
+                    accepted=True,
+                    status__in=['won', 'lost']
+                ).order_by('-timestamp')[:lookback]
+            )
+            
+            # Agrupar por símbolo
+            symbol_stats: Dict[str, Dict[str, Any]] = {}
+            
+            for trade in recent_trades:
+                symbol = trade.symbol
+                
+                if symbol not in symbol_stats:
+                    symbol_stats[symbol] = {
+                        'won': 0,
+                        'lost': 0,
+                        'total_pnl': Decimal('0.00'),
+                        'trades': []
+                    }
+                
+                symbol_stats[symbol]['trades'].append(trade)
+                
+                if trade.status == 'won':
+                    symbol_stats[symbol]['won'] += 1
+                elif trade.status == 'lost':
+                    symbol_stats[symbol]['lost'] += 1
+                
+                # Sumar P&L
+                if trade.pnl:
+                    symbol_stats[symbol]['total_pnl'] += Decimal(str(trade.pnl))
+            
+            # Calcular métricas finales
+            result: Dict[str, Dict[str, float]] = {}
+            
+            for symbol, stats in symbol_stats.items():
+                total = stats['won'] + stats['lost']
+                if total == 0:
+                    continue
+                
+                win_rate = stats['won'] / total
+                total_pnl = float(stats['total_pnl'])
+                avg_pnl = total_pnl / total if total > 0 else 0.0
+                
+                # Calcular score combinado (0-1)
+                # Factor 1: Win rate (peso 0.4)
+                win_rate_score = win_rate
+                
+                # Factor 2: P&L promedio normalizado (peso 0.4)
+                # Normalizar P&L promedio a rango 0-1 (asumiendo que -$2 a $2 es el rango típico)
+                normalized_pnl = max(0, min(1, (avg_pnl + 2) / 4))
+                
+                # Factor 3: Consistencia (menos trades = menos confianza) (peso 0.2)
+                # Preferir símbolos con más trades (más datos)
+                consistency_score = min(1.0, total / 10)  # Máximo score con 10+ trades
+                
+                # Score combinado
+                score = (win_rate_score * 0.4) + (normalized_pnl * 0.4) + (consistency_score * 0.2)
+                
+                result[symbol] = {
+                    'win_rate': win_rate,
+                    'total_pnl': total_pnl,
+                    'avg_pnl': avg_pnl,
+                    'trades_count': total,
+                    'score': score
+                }
+            
+            return result
+            
+        except Exception as e:
+            print(f"Error calculando desempeño de símbolos: {e}")
+            return {}
 

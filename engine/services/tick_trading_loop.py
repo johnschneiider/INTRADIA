@@ -271,13 +271,54 @@ class TickTradingLoop:
             # Verificar si debe pausarse el trading (modo pausa selectiva)
             metrics = self.adaptive_filter_manager.calculate_metrics(current_balance)
             
-            # Determinar el símbolo con mejor desempeño (si hay prioridades)
-            best_symbol = None
-            if self.symbol_priorities:
-                best_symbol = max(self.symbol_priorities.items(), key=lambda x: x[1])[0]
+            # ACTUALIZAR PRIORIDADES DE SÍMBOLOS: Análisis de últimos 20 trades
+            symbol_performance = self.adaptive_filter_manager.calculate_symbol_performance(lookback=20)
+            
+            # Actualizar symbol_priorities con los scores calculados
+            for symbol, perf in symbol_performance.items():
+                self.symbol_priorities[symbol] = perf['score']
+            
+            # Si hay racha perdedora (>= 3), usar solo símbolos con mejor desempeño
+            if metrics.losing_streak >= 3:
+                # Filtrar símbolos con score >= 0.5 (desempeño decente)
+                good_symbols = {s: score for s, score in self.symbol_priorities.items() if score >= 0.5}
+                
+                if good_symbols:
+                    # Ordenar por score y usar solo el mejor
+                    sorted_symbols = sorted(good_symbols.items(), key=lambda x: x[1], reverse=True)
+                    best_symbol = sorted_symbols[0][0] if sorted_symbols else None
+                    print(f"📊 Racha perdedora ({metrics.losing_streak}): Usando solo símbolos con score >= 0.5. Mejor: {best_symbol} (score: {sorted_symbols[0][1]:.2f})")
+                else:
+                    # Si no hay símbolos con buen desempeño, usar el mejor disponible
+                    if self.symbol_priorities:
+                        best_symbol = max(self.symbol_priorities.items(), key=lambda x: x[1])[0]
+                        print(f"⚠️ Sin símbolos con buen desempeño. Usando mejor disponible: {best_symbol}")
+                    else:
+                        best_symbol = None
+            else:
+                # Determinar el símbolo con mejor desempeño (si hay prioridades)
+                best_symbol = None
+                if self.symbol_priorities:
+                    best_symbol = max(self.symbol_priorities.items(), key=lambda x: x[1])[0]
             
             # Verificar pausa con el mejor símbolo
             pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=best_symbol)
+            
+            # CONTROL MEJORADO DE PÉRDIDAS: Si hay racha perdedora >= 3, usar solo mejores símbolos
+            if metrics.losing_streak >= 3:
+                # Si no es el mejor símbolo, rechazar
+                if best_symbol and symbol != best_symbol:
+                    symbol_score = self.symbol_priorities.get(symbol, 0)
+                    best_score = self.symbol_priorities.get(best_symbol, 0)
+                    return {
+                        'status': 'rejected',
+                        'reason': 'losing_streak_filter',
+                        'message': f'⏸️ Racha perdedora ({metrics.losing_streak}): Solo {best_symbol} puede operar (score: {best_score:.2f} vs {symbol_score:.2f})'
+                    }
+                
+                # Si es el mejor símbolo, permitir pero con filtros más estrictos
+                if best_symbol and symbol == best_symbol:
+                    print(f"🔄 Control de pérdidas activo: Racha {metrics.losing_streak}, operando solo {best_symbol} (score: {self.symbol_priorities.get(best_symbol, 0):.2f})")
             
             if pause_info['should_pause']:
                 # Durante pausa: solo permitir el símbolo con mejor desempeño

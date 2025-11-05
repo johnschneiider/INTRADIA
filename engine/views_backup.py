@@ -20,176 +20,6 @@ def status(request):
     return Response({'status': 'ok'})
 
 
-@login_required
-def dashboard(request):
-    """Renderizar el dashboard principal con precios en tiempo real"""
-    return render(request, 'dashboard_precios_realtime_v2.html')
-
-
-@api_view(['GET'])
-def get_trades(request):
-    """Obtener operaciones activas y finalizadas"""
-    try:
-        from datetime import timedelta
-        from django.utils import timezone
-        
-        # Historial persistente desde la BD (no limitar a 30 minutos)
-        # Mostrar las últimas 200 operaciones, incluyendo finalizadas antiguas
-        # Incluir TODOS los trades sin filtrar por estado
-        # Usar list() para evaluar el QuerySet y obtener todos los resultados
-        trades = list(OrderAudit.objects.all().order_by('-timestamp')[:200])
-        
-        # Debug: mostrar cantidad de trades encontrados
-        print(f"📊 Total trades encontrados: {len(trades)}")
-        
-        active = []
-        completed = []
-        
-        for trade in trades:
-            # Obtener monto/stake REAL del trade (prioridad al monto final usado)
-            amount = None
-            
-            # 1. Primero intentar desde response_payload['amount'] (monto REAL usado después de ajustes)
-            if trade.response_payload:
-                amount = trade.response_payload.get('amount')
-                if amount:
-                    amount = float(amount)
-            
-            # 2. Si no está en response_payload, usar size (campo directo del modelo)
-            if not amount and trade.size:
-                amount = float(trade.size)
-            
-            # 3. Si aún no tenemos monto, intentar desde request_payload
-            if not amount and trade.request_payload:
-                # Intentar obtener desde position_sizing (monto calculado, puede diferir del real)
-                position_sizing = trade.request_payload.get('position_sizing', {})
-                if position_sizing:
-                    amount = position_sizing.get('risk_amount') or position_sizing.get('amount')
-                    if amount:
-                        amount = float(amount)
-                # Si no está en position_sizing, buscar en el request directamente
-                if not amount:
-                    amount = trade.request_payload.get('amount') or trade.request_payload.get('stake')
-                    if amount:
-                        amount = float(amount)
-            
-            # Si aún no tenemos monto, usar 0.0 (no debería pasar)
-            if not amount:
-                amount = 0.0
-            
-            # Extraer contract_id del payload si existe
-            contract_id = None
-            try:
-                if trade.response_payload and isinstance(trade.response_payload, dict):
-                    contract_id = (
-                        trade.response_payload.get('order_id') or
-                        trade.response_payload.get('contract_id') or
-                        (trade.response_payload.get('buy', {}).get('contract_id') if isinstance(trade.response_payload.get('buy'), dict) else None)
-                    )
-            except Exception:
-                contract_id = None
-
-            # Extraer confianza (0-1) y convertir a porcentaje (0-100)
-            confidence_pct = None
-            try:
-                # Preferir la confianza guardada en position_sizing
-                if trade.request_payload and isinstance(trade.request_payload, dict):
-                    pos_sizing = trade.request_payload.get('position_sizing') or {}
-                    conf_val = pos_sizing.get('confidence')
-                    if conf_val is None:
-                        # Alternativa: confianza del propio signal (estrategia estadística)
-                        conf_val = trade.request_payload.get('confidence')
-                    if conf_val is not None:
-                        confidence_pct = float(conf_val) * 100.0 if float(conf_val) <= 1.0 else float(conf_val)
-            except Exception:
-                confidence_pct = None
-
-            # Extraer estrategia del request_payload
-            strategy_name = None
-            try:
-                internal_name = trade.request_payload.get('strategy')
-                # Fallback heurístico si 'strategy' no está presente en el payload
-                if not internal_name:
-                    if 'z_score' in trade.request_payload or 'signal_type' in trade.request_payload:
-                        internal_name = 'statistical_hybrid'
-                    elif 'ema200' in trade.request_payload or 'recent_high' in trade.request_payload:
-                        internal_name = 'ema200_extrema'
-                    elif 'force_pct' in trade.request_payload:
-                        internal_name = 'tick_based'
-                    elif 'fatigue_count' in trade.request_payload or 'momentum_extreme' in trade.request_payload or 'divergence_score' in trade.request_payload:
-                        internal_name = 'momentum_reversal'
-                # Mapear a nombres cortos y dicientes
-                if internal_name == 'statistical_hybrid':
-                    strategy_name = 'Híbrida'
-                elif internal_name == 'ema200_extrema':
-                    strategy_name = 'EMA100'
-                elif internal_name == 'tick_based':
-                    strategy_name = 'Ticks'
-                elif internal_name == 'momentum_reversal':
-                    strategy_name = 'Reversión'
-                else:
-                    strategy_name = 'Desconocida'
-            except Exception:
-                strategy_name = 'Desconocida'
-            
-            trade_data = {
-                'id': trade.id,
-                'symbol': trade.symbol,
-                'direction': trade.action.upper(),
-                'price': float(trade.price) if trade.price else 0.0,
-                'timestamp': trade.timestamp.isoformat(),
-                'status': trade.status,
-                'amount': amount,  # Monto REAL usado en el trade
-                'pnl': float(trade.pnl) if trade.pnl else 0.0,  # P&L para operaciones finalizadas
-                'contract_id': contract_id,
-                'confidence_pct': confidence_pct,
-                'strategy': strategy_name
-            }
-            
-            # Mostrar como activo si está pending o active
-            # Mostrar como completado si está won, lost, rejected, o cualquier otro estado
-            if trade.status in ['pending', 'active']:
-                active.append(trade_data)
-            else:
-                # Incluir todos los estados finalizados: won, lost, rejected, expired, etc.
-                completed.append(trade_data)
-        
-        # Debug: mostrar cantidad de trades por categoría
-        print(f"📊 Trades activos: {len(active)}, Trades completados: {len(completed)}")
-        
-        # MÉTRICAS: Operaciones en las últimas 24 horas
-        since_metrics = timezone.now() - timedelta(hours=24)
-        recent_trades = OrderAudit.objects.filter(timestamp__gte=since_metrics)
-        
-        total_trades = recent_trades.count()
-        won_trades = recent_trades.filter(status='won').count()
-        lost_trades = recent_trades.filter(status='lost').count()
-        active_trades = recent_trades.filter(status__in=['pending', 'active']).count()
-        
-        # P&L total de las últimas 24 horas
-        total_pnl = sum(float(t.pnl or 0) for t in recent_trades)
-        
-        # Win rate
-        win_rate = (won_trades / (won_trades + lost_trades)) * 100 if (won_trades + lost_trades) > 0 else 0
-        
-        return JsonResponse({
-            'success': True,
-            'active': active,
-            'completed': completed,
-            'metrics': {
-                'total_pnl': total_pnl,
-                'win_rate': win_rate,
-                'total_trades': total_trades,
-                'active_trades': active_trades
-            }
-        })
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
 @api_view(['GET'])
 def get_balance(request):
     """Obtener balance de Deriv con manejo de rate limiting"""
@@ -305,13 +135,127 @@ def get_balance(request):
 
 
 @api_view(['GET'])
-def metrics(request):
-    """Métricas en tiempo real del sistema"""
+def get_trades(request):
+    """Obtener operaciones activas y finalizadas"""
     try:
         from datetime import timedelta
         from django.utils import timezone
         
-        # Operaciones en las últimas 24 horas
+        # Historial persistente desde la BD (no limitar a 30 minutos)
+        # Mostrar las últimas 200 operaciones, incluyendo finalizadas antiguas
+        trades = OrderAudit.objects.all().order_by('-timestamp')[:200]
+        
+        active = []
+        completed = []
+        
+        for trade in trades:
+            # Obtener monto/stake REAL del trade (prioridad al monto final usado)
+            amount = None
+            
+            # 1. Primero intentar desde response_payload['amount'] (monto REAL usado después de ajustes)
+            if trade.response_payload:
+                amount = trade.response_payload.get('amount')
+                if amount:
+                    amount = float(amount)
+            
+            # 2. Si no está en response_payload, usar size (campo directo del modelo)
+            if not amount and trade.size:
+                amount = float(trade.size)
+            
+            # 3. Si aún no tenemos monto, intentar desde request_payload
+            if not amount and trade.request_payload:
+                # Intentar obtener desde position_sizing (monto calculado, puede diferir del real)
+                position_sizing = trade.request_payload.get('position_sizing', {})
+                if position_sizing:
+                    amount = position_sizing.get('risk_amount') or position_sizing.get('amount')
+                    if amount:
+                        amount = float(amount)
+                # Si no está en position_sizing, buscar en el request directamente
+                if not amount:
+                    amount = trade.request_payload.get('amount') or trade.request_payload.get('stake')
+                    if amount:
+                        amount = float(amount)
+            
+            # Si aún no tenemos monto, usar 0.0 (no debería pasar)
+            if not amount:
+                amount = 0.0
+            
+            # Extraer contract_id del payload si existe
+            contract_id = None
+            try:
+                if trade.response_payload and isinstance(trade.response_payload, dict):
+                    contract_id = (
+                        trade.response_payload.get('order_id') or
+                        trade.response_payload.get('contract_id') or
+                        (trade.response_payload.get('buy', {}).get('contract_id') if isinstance(trade.response_payload.get('buy'), dict) else None)
+                    )
+            except Exception:
+                contract_id = None
+
+            # Extraer confianza (0-1) y convertir a porcentaje (0-100)
+            confidence_pct = None
+            try:
+                # Preferir la confianza guardada en position_sizing
+                if trade.request_payload and isinstance(trade.request_payload, dict):
+                    pos_sizing = trade.request_payload.get('position_sizing') or {}
+                    conf_val = pos_sizing.get('confidence')
+                    if conf_val is None:
+                        # Alternativa: confianza del propio signal (estrategia estadística)
+                        conf_val = trade.request_payload.get('confidence')
+                    if conf_val is not None:
+                        confidence_pct = float(conf_val) * 100.0 if float(conf_val) <= 1.0 else float(conf_val)
+            except Exception:
+                confidence_pct = None
+
+            # Extraer estrategia del request_payload
+            strategy_name = None
+            try:
+                internal_name = trade.request_payload.get('strategy')
+                # Fallback heurístico si 'strategy' no está presente en el payload
+                if not internal_name:
+                    if 'z_score' in trade.request_payload or 'signal_type' in trade.request_payload:
+                        internal_name = 'statistical_hybrid'
+                    elif 'ema200' in trade.request_payload or 'recent_high' in trade.request_payload:
+                        internal_name = 'ema200_extrema'
+                    elif 'force_pct' in trade.request_payload:
+                        internal_name = 'tick_based'
+                    elif 'fatigue_count' in trade.request_payload or 'momentum_extreme' in trade.request_payload or 'divergence_score' in trade.request_payload:
+                        internal_name = 'momentum_reversal'
+                # Mapear a nombres cortos y dicientes
+                if internal_name == 'statistical_hybrid':
+                    strategy_name = 'Híbrida'
+                elif internal_name == 'ema200_extrema':
+                    # Mostramos el periodo si viene configurado en el payload (opcional)
+                    strategy_name = 'EMA100'
+                elif internal_name == 'tick_based':
+                    strategy_name = 'Ticks'
+                elif internal_name == 'momentum_reversal':
+                    strategy_name = 'Reversión'
+                else:
+                    strategy_name = 'Desconocida'
+            except Exception:
+                strategy_name = 'Desconocida'
+            
+            trade_data = {
+                'id': trade.id,
+                'symbol': trade.symbol,
+                'direction': trade.action.upper(),
+                'price': float(trade.price) if trade.price else 0.0,
+                'timestamp': trade.timestamp.isoformat(),
+                'status': trade.status,
+                'amount': amount,  # Monto REAL usado en el trade
+                'pnl': float(trade.pnl) if trade.pnl else 0.0,  # P&L para operaciones finalizadas
+                'contract_id': contract_id,
+                'confidence_pct': confidence_pct,
+                'strategy': strategy_name
+            }
+            
+            if trade.status == 'pending':
+                active.append(trade_data)
+            else:
+                completed.append(trade_data)
+        
+        # MÉTRICAS: Operaciones en las últimas 24 horas
         since_metrics = timezone.now() - timedelta(hours=24)
         recent_trades = OrderAudit.objects.filter(timestamp__gte=since_metrics)
         
@@ -324,28 +268,396 @@ def metrics(request):
         total_pnl = sum(float(t.pnl or 0) for t in recent_trades)
         
         # Win rate
-        completed_trades = won_trades + lost_trades
-        winrate = (won_trades / completed_trades) if completed_trades > 0 else 0
+        win_rate = (won_trades / (won_trades + lost_trades)) * 100 if (won_trades + lost_trades) > 0 else 0
         
         return JsonResponse({
-            'pnl': total_pnl,
-            'winrate': winrate,
-            'total_trades': total_trades,
-            'active_trades': active_trades,
-            'won_trades': won_trades,
-            'lost_trades': lost_trades
+            'success': True,
+            'active': active,
+            'completed': completed,
+            'metrics': {
+                'total_pnl': total_pnl,
+                'win_rate': win_rate,
+                'total_trades': total_trades,
+                'active_trades': active_trades
+            }
         })
     except Exception as e:
         return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
+@api_view(['GET'])
+def metrics(request):
+    """Métricas en tiempo real del sistema"""
+    try:
+        # Obtener órdenes de la base de datos
+        orders = OrderAudit.objects.all()
+        
+        # Calcular métricas
+        total_trades = orders.count()
+        won_trades = orders.filter(status='won').count()
+        lost_trades = orders.filter(status='lost').count()
+        active_trades = orders.filter(status='active').count()
+        
+        # P&L total
+        total_pnl = sum(float(order.pnl or 0) for order in orders)
+        
+        # Tasa de acierto
+        completed_trades = won_trades + lost_trades
+        win_rate = (won_trades / completed_trades) if completed_trades > 0 else 0
+        
+        # Drawdown máximo
+        max_drawdown = 0
+        running_pnl = 0
+        peak = 0
+        
+        for order in orders.order_by('timestamp'):
+            running_pnl += float(order.pnl or 0)
+            if running_pnl > peak:
+                peak = running_pnl
+            drawdown = peak - running_pnl
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+        
+        max_drawdown_pct = (max_drawdown / abs(peak)) * 100 if peak != 0 else 0
+        
+        return Response({
+            'pnl': total_pnl,
+            'winrate': win_rate,
+            'expectancy': total_pnl / completed_trades if completed_trades > 0 else 0,
+            'max_drawdown_pct': max_drawdown_pct,
+            'trades_per_hour': total_trades / 24,  # Aproximación
+            'latency_ms_avg': sum(float(order.latency_ms or 0) for order in orders) / total_trades if total_trades > 0 else 0,
+            'fill_rate': (total_trades - orders.filter(status='pending').count()) / total_trades if total_trades > 0 else 0,
+            'total_trades': total_trades,
+            'won_trades': won_trades,
+            'lost_trades': lost_trades,
+            'active_trades': active_trades,
+        })
+    except Exception as e:
+        return Response({
             'error': str(e),
             'pnl': 0.0,
             'winrate': 0.0,
             'total_trades': 0,
             'active_trades': 0,
-            'won_trades': 0,
-            'lost_trades': 0
+        })
+
+
+@api_view(['GET'])
+def prometheus_metrics(request):
+    """Exponer métricas para Prometheus"""
+    # TODO: Implementar métricas reales de Prometheus
+    return Response({
+        'intradia_pnl_total': 0.0,
+        'intradia_trades_total': 0,
+        'intradia_active_trades': 0,
+        'intradia_winrate': 0.0,
+        'intradia_max_drawdown_pct': 0.0,
+    })
+
+
+@api_view(['POST', 'GET'])
+def orders(request):
+    """Manejar órdenes: POST para crear, GET para listar"""
+    if request.method == 'POST':
+        try:
+            data = request.data
+            symbol = data.get('symbol', 'EURUSD')
+            side = data.get('side', 'buy')  # 'buy' o 'sell'
+            size = float(data.get('size', 1.0))
+            price = float(data.get('price', 0.0))
+            stop_loss = float(data.get('stop_loss', 0.0))
+            take_profit = float(data.get('take_profit', 0.0))
+            
+            # Crear request de orden
+            from engine.services.execution_gateway import OrderRequest
+            order_req = OrderRequest(
+                symbol=symbol,
+                side=side,
+                size=size,
+                price=price,
+                stop=stop_loss,
+                take_profit=take_profit
+            )
+            
+            # Ejecutar a través del gateway
+            result = place_order_through_gateway(order_req)
+            
+            if result['accepted']:
+                # Registrar en auditoría
+                audit = OrderAudit.objects.create(
+                    symbol=symbol,
+                    action=side,
+                    size=size,
+                    price=result.get('price', price),
+                    stop_loss=stop_loss,
+                    take_profit=take_profit,
+                    status='active',
+                    response_hash=hash_payload(result),
+                    latency_ms=result.get('latency_ms', 0)
+                )
+                
+                return Response({
+                    'accepted': True,
+                    'order_id': result.get('order_id'),
+                    'audit_id': audit.id,
+                    'message': 'Orden ejecutada exitosamente'
+                })
+            else:
+                return Response({
+                    'accepted': False,
+                    'reason': result.get('reason', 'Error desconocido')
+                }, status=400)
+                
+        except Exception as e:
+            return Response({
+                'accepted': False,
+                'reason': str(e)
+            }, status=500)
+    
+    elif request.method == 'GET':
+        """Listar órdenes recientes"""
+        try:
+            orders = OrderAudit.objects.all().order_by('-timestamp')[:50]
+            orders_data = []
+            
+            for order in orders:
+                orders_data.append({
+                    'id': order.id,
+                    'timestamp': order.timestamp.isoformat(),
+                    'symbol': order.symbol,
+                    'action': order.action,
+                    'size': float(order.size or 0),
+                    'price': float(order.price or 0),
+                    'stop_loss': float(order.stop_loss or 0),
+                    'take_profit': float(order.take_profit or 0),
+                    'exit_price': float(order.exit_price or 0),
+                    'pnl': float(order.pnl or 0),
+                    'status': order.status,
+                    'latency_ms': float(order.latency_ms or 0)
+                })
+            
+            return Response({
+                'orders': orders_data,
+                'count': len(orders_data)
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': str(e),
+                'orders': [],
+                'count': 0
+            })
+
+
+@api_view(['POST'])
+def backtest_run(request):
+    """Ejecutar backtest"""
+    try:
+        data = request.data
+        symbol = data.get('symbol', 'EURUSD')
+        timeframe = data.get('timeframe', '1h')
+        period_days = int(data.get('period_days', 30))
+        
+        # Ejecutar backtest
+        result = run_backtest(symbol, timeframe)
+        
+        return Response({
+            'success': True,
+            'symbol': symbol,
+            'timeframe': timeframe,
+            'period_days': period_days,
+            'results': result
+        })
+        
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
         }, status=500)
 
+
+@api_view(['POST'])
+def trader_kill(request):
+    """Kill switch para detener el sistema"""
+    # TODO: Implementar kill switch real
+    return Response({'killed': True, 'message': 'Sistema detenido'})
+
+
+@api_view(['POST'])
+def policy_promote(request):
+    """Promover política de RL de shadow a active"""
+    thresholds = {
+        'min_trades': 100,
+        'min_winrate': 0.55,
+        'max_drawdown': 15.0
+    }
+    
+    metrics = get_metrics()
+    if not metrics:
+        return Response({'promoted': False, 'reason': 'no_metrics'}, status=400)
+    if metrics.get('max_drawdown', 100.0) > thresholds['max_drawdown']:
+        return Response({'promoted': False, 'reason': 'dd_exceeds'}, status=400)
+    if metrics.get('winrate', 0.0) < thresholds['min_winrate']:
+        return Response({'promoted': False, 'reason': 'winrate_below'}, status=400)
+    state, _ = PolicyState.objects.get_or_create(id=1)
+    state.promote_to_rl(metrics)
+    return Response({'promoted': True, 'mode': state.mode})
+
+
+@api_view(['GET'])
+def candles(request):
+    """Obtener datos de velas para el gráfico"""
+    from market.models import Candle
+    
+    symbol = request.GET.get('symbol', 'EURUSD')
+    timeframe = request.GET.get('timeframe', '1h')
+    limit = int(request.GET.get('limit', 100))
+    
+    # Obtener velas de la base de datos
+    candles_qs = Candle.objects.filter(
+        symbol=symbol, 
+        timeframe=timeframe
+    ).order_by('-timestamp')[:limit]
+    
+    # Convertir a formato para el gráfico
+    candles_data = []
+    for candle in candles_qs:
+        candles_data.append({
+            'timestamp': candle.timestamp.isoformat(),
+            'open': float(candle.open),
+            'high': float(candle.high),
+            'low': float(candle.low),
+            'close': float(candle.close),
+            'volume': float(candle.volume)
+        })
+    
+    return Response({
+        'symbol': symbol,
+        'timeframe': timeframe,
+        'candles': candles_data,
+        'count': len(candles_data)
+    })
+
+
+@api_view(['GET'])
+def ticks_realtime(request):
+    """Obtener ticks en tiempo real"""
+    from market.models import Tick
+    
+    symbol = request.GET.get('symbol', 'R_10')
+    limit = int(request.GET.get('limit', 100))
+    
+    # Obtener ticks más recientes
+    ticks_qs = Tick.objects.filter(symbol=symbol).order_by('-timestamp')[:limit]
+    
+    ticks_data = []
+    for tick in ticks_qs:
+        ticks_data.append({
+            'timestamp': tick.timestamp.isoformat(),
+            'price': float(tick.price),
+            'volume': float(tick.volume)
+        })
+    
+    return Response({
+        'symbol': symbol,
+        'ticks': ticks_data,
+        'count': len(ticks_data)
+    })
+
+
+def test_deriv_connection(request):
+    """Test de conexión con Deriv API"""
+    try:
+        from connectors.deriv_client import DerivClient
+        from trading_bot.models import DerivAPIConfig
+        
+        # Obtener configuración activa para DerivClient
+        api_config = DerivAPIConfig.objects.filter(is_active=True).only('api_token', 'is_demo', 'app_id').first()
+        if api_config:
+            client = DerivClient(
+                api_token=api_config.api_token,
+                is_demo=api_config.is_demo,
+                app_id=api_config.app_id
+            )
+        else:
+            client = DerivClient()
+        authenticated = client.authenticate()
+        
+        if authenticated:
+            balance_info = client.get_balance()
+            return Response({
+                'connected': True,
+                'authenticated': True,
+                'balance': balance_info,
+                'message': 'Conexión exitosa con Deriv'
+            })
+        else:
+            return Response({
+                'connected': False,
+                'authenticated': False,
+                'message': 'Error de autenticación con Deriv'
+            }, status=400)
+            
+    except Exception as e:
+        return Response({
+            'connected': False,
+            'error': str(e),
+            'message': 'Error de conexión con Deriv'
+        }, status=500)
+
+
+def dashboard(request):
+    """Renderizar el dashboard principal con precios en tiempo real"""
+    return render(request, 'dashboard_precios_realtime_v2.html')
+
+
+@api_view(['GET', 'POST'])
+def trading_config_api(request):
+    """API para obtener y guardar configuración de trading"""
+    from engine.models import CapitalConfig
+    from django.http import JsonResponse
+    
+    if request.method == 'GET':
+        config = CapitalConfig.get_active()
+        return JsonResponse({
+            'max_amount_pct_balance': config.max_amount_pct_balance,
+            'max_amount_absolute': config.max_amount_absolute,
+            'min_amount_per_trade': config.min_amount_per_trade,
+            'min_trade_interval_seconds': config.min_trade_interval_seconds,
+            'default_duration_forex': config.default_duration_forex,
+            'default_duration_metals': config.default_duration_metals,
+            'default_duration_indices': config.default_duration_indices,
+            'symbol_amount_limits': config.symbol_amount_limits or {},
+        })
+    
+    elif request.method == 'POST':
+        config = CapitalConfig.get_active()
+        data = json.loads(request.body) if request.body else {}
+        
+        # Actualizar campos
+        if 'max_amount_pct_balance' in data:
+            config.max_amount_pct_balance = float(data['max_amount_pct_balance'])
+        if 'max_amount_absolute' in data:
+            config.max_amount_absolute = float(data['max_amount_absolute'])
+        if 'min_amount_per_trade' in data:
+            config.min_amount_per_trade = float(data['min_amount_per_trade'])
+        if 'min_trade_interval_seconds' in data:
+            config.min_trade_interval_seconds = int(data['min_trade_interval_seconds'])
+        if 'default_duration_forex' in data:
+            config.default_duration_forex = int(data['default_duration_forex'])
+        if 'default_duration_metals' in data:
+            config.default_duration_metals = int(data['default_duration_metals'])
+        if 'default_duration_indices' in data:
+            config.default_duration_indices = int(data['default_duration_indices'])
+        if 'symbol_amount_limits' in data:
+            config.symbol_amount_limits = data['symbol_amount_limits']
+        
+        config.save()
+        return JsonResponse({'success': True, 'message': 'Configuración actualizada'})
 
 @login_required
 def capital_config(request):
@@ -559,52 +871,6 @@ def capital_config(request):
         }
     
     return render(request, 'engine/capital_config.html', context)
-
-
-@login_required
-def trading_config_api(request):
-    """API para obtener y guardar configuración de trading"""
-    from engine.models import CapitalConfig
-    
-    if request.method == 'GET':
-        config = CapitalConfig.get_active()
-        return JsonResponse({
-            'max_amount_pct_balance': config.max_amount_pct_balance,
-            'max_amount_absolute': config.max_amount_absolute,
-            'min_amount_per_trade': config.min_amount_per_trade,
-            'min_trade_interval_seconds': config.min_trade_interval_seconds,
-            'default_duration_forex': config.default_duration_forex,
-            'default_duration_metals': config.default_duration_metals,
-            'default_duration_indices': config.default_duration_indices,
-            'symbol_amount_limits': config.symbol_amount_limits or {},
-        })
-    
-    elif request.method == 'POST':
-        config = CapitalConfig.get_active()
-        data = json.loads(request.body) if request.body else {}
-        
-        # Actualizar campos
-        if 'max_amount_pct_balance' in data:
-            config.max_amount_pct_balance = float(data['max_amount_pct_balance'])
-        if 'max_amount_absolute' in data:
-            config.max_amount_absolute = float(data['max_amount_absolute'])
-        if 'min_amount_per_trade' in data:
-            config.min_amount_per_trade = float(data['min_amount_per_trade'])
-        if 'min_trade_interval_seconds' in data:
-            config.min_trade_interval_seconds = int(data['min_trade_interval_seconds'])
-        if 'default_duration_forex' in data:
-            config.default_duration_forex = int(data['default_duration_forex'])
-        if 'default_duration_metals' in data:
-            config.default_duration_metals = int(data['default_duration_metals'])
-        if 'default_duration_indices' in data:
-            config.default_duration_indices = int(data['default_duration_indices'])
-        if 'symbol_amount_limits' in data:
-            config.symbol_amount_limits = data['symbol_amount_limits']
-        
-        config.save()
-        return JsonResponse({'success': True, 'message': 'Configuración actualizada'})
-    
-    return JsonResponse({'success': False, 'error': 'Método no permitido'}, status=405)
 
 
 @login_required
@@ -1002,445 +1268,146 @@ def trading_loop_control_api(request):
         return JsonResponse({
             'success': False,
             'message': str(e)
-        }, status=500)
-
-@login_required
-def active_trades_api(request):
-    """API para obtener trades activos/pendientes"""
-    try:
-        from monitoring.models import OrderAudit
-        from django.utils import timezone
-        
-        # Obtener trades activos/pendientes (incluir también 'rejected' si se muestran como activos temporalmente)
-        active_trades = OrderAudit.objects.filter(
-            status__in=['pending', 'active']
-        ).order_by('-timestamp')[:100]  # Aumentar límite para mostrar más trades
-        
-        trades_data = []
-        for trade in active_trades:
-            contract_id = None
-            if trade.request_payload:
-                contract_id = trade.request_payload.get('contract_id') or trade.request_payload.get('order_id')
-            
-            trades_data.append({
-                'id': trade.id,
-                'symbol': trade.symbol,
-                'direction': trade.action.upper() if trade.action else 'N/A',
-                'price': float(trade.price) if trade.price else 0.0,
-                'amount': float(trade.size) if trade.size else 0.0,
-                'timestamp': trade.timestamp.isoformat(),
-                'status': trade.status,
-                'contract_id': contract_id,
-                'hours_ago': round((timezone.now() - trade.timestamp).total_seconds() / 3600, 2)
-            })
-        
-        return JsonResponse({
-            'success': True,
-            'trades': trades_data,
-            'count': len(trades_data)
-        })
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
-@login_required
-@csrf_exempt
-def close_trade_api(request):
-    """API para cerrar un trade activo"""
-    if request.method != 'POST':
-        return JsonResponse({
-            'success': False,
-            'error': 'Método no permitido'
-        }, status=405)
-    
-    try:
-        import json
-        from connectors.deriv_client import DerivClient
-        from trading_bot.models import DerivAPIConfig
-        from monitoring.models import OrderAudit
-        
-        data = json.loads(request.body)
-        contract_id = data.get('contract_id')
-        trade_id = data.get('trade_id')
-        
-        if not contract_id and not trade_id:
-            return JsonResponse({
-                'success': False,
-                'error': 'Se requiere contract_id o trade_id'
-            }, status=400)
-        
-        # Si solo tenemos trade_id, obtener contract_id del trade
-        trade = None
-        if not contract_id and trade_id:
-            try:
-                trade = OrderAudit.objects.get(id=trade_id)
-                if trade.request_payload:
-                    contract_id = trade.request_payload.get('contract_id') or trade.request_payload.get('order_id')
-            except OrderAudit.DoesNotExist:
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Trade no encontrado'
-                }, status=404)
-        
-        if not contract_id:
-            return JsonResponse({
-                'success': False,
-                'error': 'No se pudo obtener contract_id'
-            }, status=400)
-        
-        # Obtener configuración de API
-        config = DerivAPIConfig.objects.filter(is_active=True).first()
-        if not config:
-            return JsonResponse({
-                'success': False,
-                'error': 'No hay configuración de API activa'
-            }, status=500)
-        
-        # Cerrar el contrato
-        client = DerivClient(
-            api_token=config.api_token,
-            is_demo=config.is_demo,
-            app_id=config.app_id
-        )
-        
-        result = client.sell_contract(str(contract_id))
-        
-        if result.get('error'):
-            return JsonResponse({
-                'success': False,
-                'error': result['error']
-            }, status=500)
-        
-        # Actualizar el trade en la base de datos
-        if trade_id:
-            try:
-                if not trade:
-                    trade = OrderAudit.objects.get(id=trade_id)
-                trade.status = 'won' if result.get('profit', 0) > 0 else 'lost'
-                trade.pnl = Decimal(str(result.get('profit', 0)))
-                
-                # Guardar respuesta de la venta
-                if not trade.response_payload:
-                    trade.response_payload = {}
-                trade.response_payload['sell_result'] = result
-                
-                trade.save()
-            except OrderAudit.DoesNotExist:
-                pass
-        
-        return JsonResponse({
-            'success': True,
-            'result': result,
-            'message': f'Contrato {contract_id} cerrado exitosamente'
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
-@login_required
-@csrf_exempt
-def close_all_trades_api(request):
-    """API para cerrar todos los trades activos/pendientes"""
-    if request.method != 'POST':
-        return JsonResponse({
-            'success': False,
-            'error': 'Método no permitido'
-        }, status=405)
-    
-    try:
-        from connectors.deriv_client import DerivClient
-        from trading_bot.models import DerivAPIConfig
-        from monitoring.models import OrderAudit
-        from decimal import Decimal
-        
-        # Obtener todos los trades activos/pendientes
-        active_trades = OrderAudit.objects.filter(
-            status__in=['pending', 'active']
-        )
-        
-        if not active_trades.exists():
-            return JsonResponse({
-                'success': True,
-                'message': 'No hay trades activos para cerrar',
-                'closed_count': 0,
-                'total_pnl': 0
-            })
-        
-        # Obtener configuración de API
-        config = DerivAPIConfig.objects.filter(is_active=True).first()
-        if not config:
-            return JsonResponse({
-                'success': False,
-                'error': 'No hay configuración de API activa'
-            }, status=500)
-        
-        # Crear cliente Deriv (solo una vez para todos los trades)
-        client = DerivClient(
-            api_token=config.api_token,
-            is_demo=config.is_demo,
-            app_id=config.app_id
-        )
-        
-        # Autenticar el cliente una sola vez
-        if not client.authenticate():
-            return JsonResponse({
-                'success': False,
-                'error': 'No se pudo autenticar con Deriv API'
-            }, status=500)
-        
-        closed_count = 0
-        failed_count = 0
-        total_pnl = Decimal('0.00')
-        errors = []
-        
-        # Cerrar cada trade
-        total_trades = active_trades.count()
-        processed = 0
-        
-        # Importar time para delays
-        import time
-        
-        for trade in active_trades:
-            processed += 1
-            contract_id = None
-            
-            # Intentar obtener contract_id del trade (múltiples formas)
-            try:
-                # 1. Desde response_payload (múltiples ubicaciones)
-                if trade.response_payload:
-                    if isinstance(trade.response_payload, dict):
-                        # Primero intentar contract_id directo
-                        contract_id = trade.response_payload.get('contract_id')
-                        
-                        # Si no hay, intentar desde objeto 'buy'
-                        if not contract_id and 'buy' in trade.response_payload:
-                            buy_obj = trade.response_payload.get('buy')
-                            if isinstance(buy_obj, dict):
-                                contract_id = buy_obj.get('contract_id')
-                        
-                        # Si aún no hay, usar order_id como fallback (en Deriv a veces son iguales)
-                        if not contract_id:
-                            contract_id = trade.response_payload.get('order_id')
-                
-                # 2. Desde request_payload
-                if not contract_id and trade.request_payload:
-                    if isinstance(trade.request_payload, dict):
-                        contract_id = trade.request_payload.get('contract_id') or trade.request_payload.get('order_id')
-                
-                # 3. Si aún no hay contract_id, marcar como fallido
-                if not contract_id:
-                    failed_count += 1
-                    errors.append(f"Trade {trade.id} ({trade.symbol}): No hay contract_id disponible")
-                    # Marcar el trade como "lost" ya que no se puede cerrar
-                    try:
-                        trade.status = 'lost'
-                        trade.pnl = Decimal('0.00')
-                        trade.save()
-                    except:
-                        pass
-                    continue
-                
-                # Cerrar el contrato
-                # Intentar cerrar el contrato
-                result = client.sell_contract(str(contract_id))
-                
-                if result.get('error'):
-                    failed_count += 1
-                    error_msg = result.get('error', {}).get('message', str(result.get('error'))) if isinstance(result.get('error'), dict) else str(result.get('error'))
-                    errors.append(f"Trade {trade.id} ({trade.symbol}): {error_msg}")
-                    
-                    # Si el error es que el contrato no existe o ya expiró, marcar como lost
-                    error_str = str(error_msg).lower()
-                    if any(keyword in error_str for keyword in ['not found', 'expired', 'invalid', 'does not exist']):
-                        try:
-                            trade.status = 'lost'
-                            trade.pnl = Decimal('0.00')
-                            if not trade.response_payload:
-                                trade.response_payload = {}
-                            trade.response_payload['sell_error'] = result.get('error')
-                            trade.save()
-                        except:
-                            pass
-                    continue
-                
-                # Actualizar el trade en la base de datos
-                profit = Decimal(str(result.get('profit', 0)))
-                trade.status = 'won' if profit > 0 else 'lost'
-                trade.pnl = profit
-                
-                if not trade.response_payload:
-                    trade.response_payload = {}
-                trade.response_payload['sell_result'] = result
-                
-                trade.save()
-                
-                closed_count += 1
-                total_pnl += profit
-                
-                # Pequeño delay para evitar rate limiting
-                time.sleep(0.2)
-                
-            except Exception as e:
-                failed_count += 1
-                error_msg = str(e)
-                errors.append(f"Trade {trade.id} ({trade.symbol}): {error_msg}")
-                # Intentar marcar como lost si hay error
-                try:
-                    trade.status = 'lost'
-                    trade.pnl = Decimal('0.00')
-                    trade.save()
-                except:
-                    pass
-        
-        # Mensaje final
-        if closed_count > 0:
-            message = f'Cerrados {closed_count} trades exitosamente'
-        elif failed_count > 0:
-            message = f'No se pudieron cerrar los trades ({failed_count} fallidos)'
-        else:
-            message = 'No había trades para cerrar'
-        
-        return JsonResponse({
-            'success': True,
-            'message': message,
-            'closed_count': closed_count,
-            'failed_count': failed_count,
-            'total_count': total_trades,
-            'total_pnl': float(total_pnl),
-            'errors': errors[:20] if errors else None  # Limitar a 20 errores para no saturar
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
-@login_required
-@csrf_exempt
-def mark_all_expired_api(request):
-    """API para marcar todos los trades activos/pendientes como expirados/perdidos (sin intentar cerrarlos en Deriv)"""
-    if request.method != 'POST':
-        return JsonResponse({
-            'success': False,
-            'error': 'Método no permitido'
-        }, status=405)
-    
-    try:
-        from monitoring.models import OrderAudit
-        from decimal import Decimal
-        from django.utils import timezone
-        
-        # Obtener todos los trades activos/pendientes
-        active_trades = OrderAudit.objects.filter(
-            status__in=['pending', 'active']
-        )
-        
-        if not active_trades.exists():
-            return JsonResponse({
-                'success': True,
-                'message': 'No hay trades activos para marcar',
-                'marked_count': 0,
-                'total_pnl': 0
-            })
-        
-        marked_count = 0
-        total_pnl = Decimal('0.00')
-        
-        # Marcar cada trade como "lost" (expirado/perdido)
-        for trade in active_trades:
-            try:
-                # Calcular P&L aproximado (negativo ya que se marca como perdido)
-                # Si hay amount en response_payload, usar ese como pérdida aproximada
-                loss_amount = Decimal('0.00')
-                if trade.response_payload:
-                    amount = trade.response_payload.get('amount') or trade.response_payload.get('risk_amount')
-                    if amount:
-                        loss_amount = -Decimal(str(amount))
-                elif trade.request_payload:
-                    # Intentar obtener amount desde request_payload
-                    position_sizing = trade.request_payload.get('position_sizing', {})
-                    if position_sizing:
-                        amount = position_sizing.get('risk_amount') or position_sizing.get('amount')
-                        if amount:
-                            loss_amount = -Decimal(str(amount))
-                    else:
-                        amount = trade.request_payload.get('amount') or trade.request_payload.get('stake')
-                        if amount:
-                            loss_amount = -Decimal(str(amount))
-                elif trade.size:
-                    # Usar el campo size del modelo
-                    loss_amount = -Decimal(str(trade.size))
-                
-                # Marcar como perdido
-                trade.status = 'lost'
-                trade.pnl = loss_amount
-                
-                # Guardar información adicional
-                if not trade.response_payload:
-                    trade.response_payload = {}
-                trade.response_payload['marked_as_expired'] = True
-                trade.response_payload['marked_at'] = timezone.now().isoformat()
-                
-                trade.save()
-                
-                marked_count += 1
-                total_pnl += loss_amount
-                
-            except Exception as e:
-                # Si hay error con un trade específico, continuar con los demás
-                print(f"Error marcando trade {trade.id}: {e}")
-                continue
-        
-        return JsonResponse({
-            'success': True,
-            'message': f'Marcados {marked_count} trades como expirados/perdidos',
-            'marked_count': marked_count,
-            'total_pnl': float(total_pnl)
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
-
-@login_required
-@csrf_exempt
-def clear_completed_trades_api(request):
-    """API para limpiar todas las operaciones finalizadas y resetear métricas"""
-    if request.method != 'POST':
-        return JsonResponse({
-            'success': False,
-            'error': 'Método no permitido'
-        }, status=405)
-    
-    try:
-        from monitoring.models import OrderAudit
-        
-        # Eliminar todas las operaciones finalizadas (won, lost, rejected)
-        deleted_count = OrderAudit.objects.filter(
-            status__in=['won', 'lost', 'rejected', 'expired']
-        ).delete()[0]
-        
-        return JsonResponse({
-            'success': True,
-            'message': f'Se eliminaron {deleted_count} operaciones finalizadas',
-            'deleted_count': deleted_count
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'error': str(e)
-        }, status=500)
-
+        }, status=500)#   F u n c i o n e s   a d i c i o n a l e s   p a r a   g e s t i � � n   d e   t r a d e s   a c t i v o s  
+ #   E s t a s   f u n c i o n e s   s e   a g r e g a r � � n   a l   f i n a l   d e   e n g i n e / v i e w s . p y  
+  
+ @ l o g i n _ r e q u i r e d  
+ d e f   a c t i v e _ t r a d e s _ a p i ( r e q u e s t ) :  
+         " " " A P I   p a r a   o b t e n e r   t r a d e s   a c t i v o s / p e n d i e n t e s " " "  
+         t r y :  
+                 f r o m   m o n i t o r i n g . m o d e l s   i m p o r t   O r d e r A u d i t  
+                 f r o m   d j a n g o . u t i l s   i m p o r t   t i m e z o n e  
+                  
+                 #   O b t e n e r   t r a d e s   a c t i v o s / p e n d i e n t e s  
+                 a c t i v e _ t r a d e s   =   O r d e r A u d i t . o b j e c t s . f i l t e r (  
+                         s t a t u s _ _ i n = [ ' p e n d i n g ' ,   ' a c t i v e ' ]  
+                 ) . o r d e r _ b y ( ' - t i m e s t a m p ' ) [ : 5 0 ]  
+                  
+                 t r a d e s _ d a t a   =   [ ]  
+                 f o r   t r a d e   i n   a c t i v e _ t r a d e s :  
+                         c o n t r a c t _ i d   =   N o n e  
+                         i f   t r a d e . r e q u e s t _ p a y l o a d :  
+                                 c o n t r a c t _ i d   =   t r a d e . r e q u e s t _ p a y l o a d . g e t ( ' c o n t r a c t _ i d ' )   o r   t r a d e . r e q u e s t _ p a y l o a d . g e t ( ' o r d e r _ i d ' )  
+                          
+                         t r a d e s _ d a t a . a p p e n d ( {  
+                                 ' i d ' :   t r a d e . i d ,  
+                                 ' s y m b o l ' :   t r a d e . s y m b o l ,  
+                                 ' d i r e c t i o n ' :   t r a d e . a c t i o n . u p p e r ( )   i f   t r a d e . a c t i o n   e l s e   ' N / A ' ,  
+                                 ' p r i c e ' :   f l o a t ( t r a d e . p r i c e )   i f   t r a d e . p r i c e   e l s e   0 . 0 ,  
+                                 ' a m o u n t ' :   f l o a t ( t r a d e . s i z e )   i f   t r a d e . s i z e   e l s e   0 . 0 ,  
+                                 ' t i m e s t a m p ' :   t r a d e . t i m e s t a m p . i s o f o r m a t ( ) ,  
+                                 ' s t a t u s ' :   t r a d e . s t a t u s ,  
+                                 ' c o n t r a c t _ i d ' :   c o n t r a c t _ i d ,  
+                                 ' h o u r s _ a g o ' :   r o u n d ( ( t i m e z o n e . n o w ( )   -   t r a d e . t i m e s t a m p ) . t o t a l _ s e c o n d s ( )   /   3 6 0 0 ,   2 )  
+                         } )  
+                  
+                 r e t u r n   J s o n R e s p o n s e ( {  
+                         ' s u c c e s s ' :   T r u e ,  
+                         ' t r a d e s ' :   t r a d e s _ d a t a ,  
+                         ' c o u n t ' :   l e n ( t r a d e s _ d a t a )  
+                 } )  
+         e x c e p t   E x c e p t i o n   a s   e :  
+                 r e t u r n   J s o n R e s p o n s e ( {  
+                         ' s u c c e s s ' :   F a l s e ,  
+                         ' e r r o r ' :   s t r ( e )  
+                 } ,   s t a t u s = 5 0 0 )  
+  
+  
+ @ l o g i n _ r e q u i r e d  
+ @ c s r f _ e x e m p t  
+ d e f   c l o s e _ t r a d e _ a p i ( r e q u e s t ) :  
+         " " " A P I   p a r a   c e r r a r   u n   t r a d e   a c t i v o " " "  
+         i f   r e q u e s t . m e t h o d   ! =   ' P O S T ' :  
+                 r e t u r n   J s o n R e s p o n s e ( {  
+                         ' s u c c e s s ' :   F a l s e ,  
+                         ' e r r o r ' :   ' M � � t o d o   n o   p e r m i t i d o '  
+                 } ,   s t a t u s = 4 0 5 )  
+          
+         t r y :  
+                 i m p o r t   j s o n  
+                 f r o m   c o n n e c t o r s . d e r i v _ c l i e n t   i m p o r t   D e r i v C l i e n t  
+                 f r o m   t r a d i n g _ b o t . m o d e l s   i m p o r t   D e r i v A P I C o n f i g  
+                 f r o m   m o n i t o r i n g . m o d e l s   i m p o r t   O r d e r A u d i t  
+                  
+                 d a t a   =   j s o n . l o a d s ( r e q u e s t . b o d y )  
+                 c o n t r a c t _ i d   =   d a t a . g e t ( ' c o n t r a c t _ i d ' )  
+                 t r a d e _ i d   =   d a t a . g e t ( ' t r a d e _ i d ' )  
+                  
+                 i f   n o t   c o n t r a c t _ i d   a n d   n o t   t r a d e _ i d :  
+                         r e t u r n   J s o n R e s p o n s e ( {  
+                                 ' s u c c e s s ' :   F a l s e ,  
+                                 ' e r r o r ' :   ' S e   r e q u i e r e   c o n t r a c t _ i d   o   t r a d e _ i d '  
+                         } ,   s t a t u s = 4 0 0 )  
+                  
+                 #   S i   s o l o   t e n e m o s   t r a d e _ i d ,   o b t e n e r   c o n t r a c t _ i d   d e l   t r a d e  
+                 t r a d e   =   N o n e  
+                 i f   n o t   c o n t r a c t _ i d   a n d   t r a d e _ i d :  
+                         t r y :  
+                                 t r a d e   =   O r d e r A u d i t . o b j e c t s . g e t ( i d = t r a d e _ i d )  
+                                 i f   t r a d e . r e q u e s t _ p a y l o a d :  
+                                         c o n t r a c t _ i d   =   t r a d e . r e q u e s t _ p a y l o a d . g e t ( ' c o n t r a c t _ i d ' )   o r   t r a d e . r e q u e s t _ p a y l o a d . g e t ( ' o r d e r _ i d ' )  
+                         e x c e p t   O r d e r A u d i t . D o e s N o t E x i s t :  
+                                 r e t u r n   J s o n R e s p o n s e ( {  
+                                         ' s u c c e s s ' :   F a l s e ,  
+                                         ' e r r o r ' :   ' T r a d e   n o   e n c o n t r a d o '  
+                                 } ,   s t a t u s = 4 0 4 )  
+                  
+                 i f   n o t   c o n t r a c t _ i d :  
+                         r e t u r n   J s o n R e s p o n s e ( {  
+                                 ' s u c c e s s ' :   F a l s e ,  
+                                 ' e r r o r ' :   ' N o   s e   p u d o   o b t e n e r   c o n t r a c t _ i d '  
+                         } ,   s t a t u s = 4 0 0 )  
+                  
+                 #   O b t e n e r   c o n f i g u r a c i � � n   d e   A P I  
+                 c o n f i g   =   D e r i v A P I C o n f i g . o b j e c t s . f i l t e r ( i s _ a c t i v e = T r u e ) . f i r s t ( )  
+                 i f   n o t   c o n f i g :  
+                         r e t u r n   J s o n R e s p o n s e ( {  
+                                 ' s u c c e s s ' :   F a l s e ,  
+                                 ' e r r o r ' :   ' N o   h a y   c o n f i g u r a c i � � n   d e   A P I   a c t i v a '  
+                         } ,   s t a t u s = 5 0 0 )  
+                  
+                 #   C e r r a r   e l   c o n t r a t o  
+                 c l i e n t   =   D e r i v C l i e n t (  
+                         a p i _ t o k e n = c o n f i g . a p i _ t o k e n ,  
+                         i s _ d e m o = c o n f i g . i s _ d e m o ,  
+                         a p p _ i d = c o n f i g . a p p _ i d  
+                 )  
+                  
+                 r e s u l t   =   c l i e n t . s e l l _ c o n t r a c t ( s t r ( c o n t r a c t _ i d ) )  
+                  
+                 i f   r e s u l t . g e t ( ' e r r o r ' ) :  
+                         r e t u r n   J s o n R e s p o n s e ( {  
+                                 ' s u c c e s s ' :   F a l s e ,  
+                                 ' e r r o r ' :   r e s u l t [ ' e r r o r ' ]  
+                         } ,   s t a t u s = 5 0 0 )  
+                  
+                 #   A c t u a l i z a r   e l   t r a d e   e n   l a   b a s e   d e   d a t o s  
+                 i f   t r a d e _ i d :  
+                         t r y :  
+                                 i f   n o t   t r a d e :  
+                                         t r a d e   =   O r d e r A u d i t . o b j e c t s . g e t ( i d = t r a d e _ i d )  
+                                 t r a d e . s t a t u s   =   ' w o n '   i f   r e s u l t . g e t ( ' p r o f i t ' ,   0 )   >   0   e l s e   ' l o s t '  
+                                 t r a d e . p n l   =   D e c i m a l ( s t r ( r e s u l t . g e t ( ' p r o f i t ' ,   0 ) ) )  
+                                  
+                                 #   G u a r d a r   r e s p u e s t a   d e   l a   v e n t a  
+                                 i f   n o t   t r a d e . r e s p o n s e _ p a y l o a d :  
+                                         t r a d e . r e s p o n s e _ p a y l o a d   =   { }  
+                                 t r a d e . r e s p o n s e _ p a y l o a d [ ' s e l l _ r e s u l t ' ]   =   r e s u l t  
+                                  
+                                 t r a d e . s a v e ( )  
+                         e x c e p t   O r d e r A u d i t . D o e s N o t E x i s t :  
+                                 p a s s  
+                  
+                 r e t u r n   J s o n R e s p o n s e ( {  
+                         ' s u c c e s s ' :   T r u e ,  
+                         ' r e s u l t ' :   r e s u l t ,  
+                         ' m e s s a g e ' :   f ' C o n t r a t o   { c o n t r a c t _ i d }   c e r r a d o   e x i t o s a m e n t e '  
+                 } )  
+                  
+         e x c e p t   E x c e p t i o n   a s   e :  
+                 r e t u r n   J s o n R e s p o n s e ( {  
+                         ' s u c c e s s ' :   F a l s e ,  
+                         ' e r r o r ' :   s t r ( e )  
+                 } ,   s t a t u s = 5 0 0 )  
+  
+ 
