@@ -665,6 +665,14 @@
             stateClass = 'bg-warning';
             stateIcon = 'fa-shield-alt';
             details = `Winrate: ${(winrate * 100).toFixed(1)}% | Drawdown: ${(drawdown * 100).toFixed(1)}%`;
+        } else if (metrics.pause_active) {
+            // Mostrar emoción de pausa
+            state = 'pausa';
+            stateText = 'En Pausa 🧘';
+            stateClass = 'bg-secondary';
+            stateIcon = 'fa-pause-circle';
+            const allowed = metrics.pause_allowed_symbol ? ` | Permitido: ${metrics.pause_allowed_symbol}` : '';
+            details = `Protegiéndose del drawdown/racha. Winrate: ${(winrate * 100).toFixed(1)}% | Racha: ${metrics.losing_streak}${allowed}`;
         } else {
             state = 'sospechoso';
             stateText = 'Sospechoso';

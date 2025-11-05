@@ -315,6 +315,12 @@ try:
             'schedule': 3600.0,  # cada hora
             'args': (SYMBOLS[0], '5m', 100),
         },
+        # Limpieza/actualización de contratos pendientes para evitar colgados
+        'check-pending-contracts': {
+            'task': 'engine.tasks.check_pending_contracts_task',
+            'schedule': 60.0,  # cada 60 segundos
+            'args': (5,),
+        },
 }
 except ImportError:
     # Celery no está instalado, usar configuración vacía

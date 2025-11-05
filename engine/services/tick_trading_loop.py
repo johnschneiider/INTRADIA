@@ -293,8 +293,8 @@ class TickTradingLoop:
                 top_symbols = self.adaptive_filter_manager.get_top_symbols_by_performance(lookback=20, top_n=5)
                 allowed_symbols = [s[0] for s in top_symbols]
                 
-                # MECANISMO DE SALIDA: Si han pasado más de 10 minutos sin ejecutar trades
-                # o hay más de 50 rechazos consecutivos, relajar temporalmente los filtros
+                # MECANISMO DE SALIDA: Si han pasado más de 5 minutos sin ejecutar trades
+                # o hay más de 30 rechazos consecutivos, relajar temporalmente los filtros
                 time_since_last_trade = None
                 if self._last_executed_trade_time:
                     time_since_last_trade = (timezone.now() - self._last_executed_trade_time).total_seconds()
@@ -302,13 +302,13 @@ class TickTradingLoop:
                 should_relax = False
                 relax_reason = ""
                 
-                # Condición 1: Más de 10 minutos sin ejecutar trades
-                if time_since_last_trade and time_since_last_trade > 600:  # 10 minutos
+                # Condición 1: Más de 5 minutos sin ejecutar trades
+                if time_since_last_trade and time_since_last_trade > 300:  # 5 minutos
                     should_relax = True
-                    relax_reason = f"más de 10 minutos sin trades ({int(time_since_last_trade/60)} min)"
+                    relax_reason = f"más de 5 minutos sin trades ({int(time_since_last_trade/60)} min)"
                 
-                # Condición 2: Más de 50 rechazos consecutivos por este filtro
-                elif self._consecutive_rejections_count >= 50:
+                # Condición 2: Más de 30 rechazos consecutivos por este filtro
+                elif self._consecutive_rejections_count >= 30:
                     should_relax = True
                     relax_reason = f"{self._consecutive_rejections_count} rechazos consecutivos"
                 
@@ -328,7 +328,7 @@ class TickTradingLoop:
                         else:
                             # Si no es el mejor, pero tiene un score razonable, también permitirlo
                             symbol_score = symbol_performance.get(symbol, {}).get('score', 0)
-                            if symbol_score >= 0.4:  # Reducir umbral a 0.4
+                            if symbol_score >= 0.35:  # Reducir umbral a 0.35
                                 print(f"🔄 Relajando filtros ({relax_reason}). Permitiendo {symbol} (score: {symbol_score:.2f})")
                                 # Permitir este símbolo aunque no esté en top 5
                                 allowed_symbols = allowed_symbols + [symbol] if allowed_symbols else [symbol]
@@ -336,7 +336,7 @@ class TickTradingLoop:
                             else:
                                 # Aún no cumple, incrementar contador
                                 self._consecutive_rejections_count += 1
-                        min_score_threshold = 0.4  # Reducir umbral temporalmente
+                        min_score_threshold = 0.35  # Reducir umbral temporalmente
                     else:
                         # Si no hay datos de performance, desactivar filtro temporalmente
                         print(f"🔄 Relajando filtros ({relax_reason}). Sin datos de performance, desactivando filtro temporalmente")
@@ -364,15 +364,25 @@ class TickTradingLoop:
                     self._consecutive_rejections_count = 0
             
             # Verificar pausa solo en casos extremos (drawdown > 15% o racha >= 5)
-            pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=None)
+            # Permitir operar el mejor símbolo incluso en pausa (modo "respiro")
+            top_symbol = None
+            try:
+                top_list = self.adaptive_filter_manager.get_top_symbols_by_performance(lookback=20, top_n=1)
+                if top_list:
+                    top_symbol = top_list[0][0]
+            except Exception:
+                top_symbol = None
+            pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=top_symbol)
             
             if pause_info['should_pause']:
-                # Solo en casos extremos: pausa completa
-                return {
-                    'status': 'rejected',
-                    'reason': 'adaptive_pause',
-                    'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
-                }
+                if pause_info.get('allowed_symbol') and symbol == pause_info['allowed_symbol']:
+                    print(f"🧘 Pausa activa: se permite operar el mejor símbolo {symbol}")
+                else:
+                    return {
+                        'status': 'rejected',
+                        'reason': 'adaptive_pause',
+                        'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
+                    }
             
             # MODO CONSERVADOR LIGERO si hay racha perdedora o drawdown elevados
             conservative_mode = False

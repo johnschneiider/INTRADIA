@@ -185,8 +185,11 @@ def get_trades(request):
         except Exception:
             win_rate_recent = win_rate / 100  # Fallback a winrate general
         
-        # Calcular drawdown para métricas
+        # Calcular drawdown y estado de pausa para métricas
         drawdown_pct = 0.0
+        pause_active = False
+        pause_allowed_symbol = None
+        losing_streak = 0
         try:
             from engine.services.adaptive_filter_manager import AdaptiveFilterManager
             from decimal import Decimal
@@ -207,9 +210,21 @@ def get_trades(request):
             adaptive_manager = AdaptiveFilterManager()
             metrics_obj = adaptive_manager.calculate_metrics(current_balance)
             drawdown_pct = metrics_obj.drawdown_pct
+            losing_streak = metrics_obj.losing_streak
+            # Evaluar pausa y símbolo permitido
+            try:
+                top_list = adaptive_manager.get_top_symbols_by_performance(lookback=20, top_n=1)
+                best_symbol = top_list[0][0] if top_list else None
+            except Exception:
+                best_symbol = None
+            pause_info = adaptive_manager.should_pause_trading(metrics_obj, best_symbol=best_symbol)
+            pause_active = bool(pause_info.get('should_pause'))
+            pause_allowed_symbol = pause_info.get('allowed_symbol')
         except Exception as e:
             print(f"Error calculando drawdown: {e}")
             drawdown_pct = 0.0
+            pause_active = False
+            pause_allowed_symbol = None
         
         return JsonResponse({
             'success': True,
@@ -220,8 +235,11 @@ def get_trades(request):
                 'win_rate': win_rate_recent,  # Winrate últimos 20 trades (decimal 0-1)
                 'win_rate_pct': win_rate_recent * 100,  # Mantener porcentaje para display
                 'drawdown_pct': drawdown_pct,
+                'losing_streak': losing_streak,
                 'total_trades': total_trades,
-                'active_trades': active_trades
+                'active_trades': active_trades,
+                'pause_active': pause_active,
+                'pause_allowed_symbol': pause_allowed_symbol
             }
         })
     except Exception as e:
