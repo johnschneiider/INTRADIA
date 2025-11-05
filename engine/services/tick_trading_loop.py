@@ -278,70 +278,34 @@ class TickTradingLoop:
             for symbol, perf in symbol_performance.items():
                 self.symbol_priorities[symbol] = perf['score']
             
-            # Si hay racha perdedora (>= 3), usar solo símbolos con mejor desempeño
-            if metrics.losing_streak >= 3:
-                # Filtrar símbolos con score >= 0.5 (desempeño decente)
-                good_symbols = {s: score for s, score in self.symbol_priorities.items() if score >= 0.5}
-                
-                if good_symbols:
-                    # Ordenar por score y usar solo el mejor
-                    sorted_symbols = sorted(good_symbols.items(), key=lambda x: x[1], reverse=True)
-                    best_symbol = sorted_symbols[0][0] if sorted_symbols else None
-                    print(f"📊 Racha perdedora ({metrics.losing_streak}): Usando solo símbolos con score >= 0.5. Mejor: {best_symbol} (score: {sorted_symbols[0][1]:.2f})")
-                else:
-                    # Si no hay símbolos con buen desempeño, usar el mejor disponible
-                    if self.symbol_priorities:
-                        best_symbol = max(self.symbol_priorities.items(), key=lambda x: x[1])[0]
-                        print(f"⚠️ Sin símbolos con buen desempeño. Usando mejor disponible: {best_symbol}")
-                    else:
-                        best_symbol = None
-            else:
-                # Determinar el símbolo con mejor desempeño (si hay prioridades)
-                best_symbol = None
-                if self.symbol_priorities:
-                    best_symbol = max(self.symbol_priorities.items(), key=lambda x: x[1])[0]
+            # NUEVA LÓGICA: Si winrate de últimos 20 trades < 52%, usar solo top 5 símbolos
+            allowed_symbols = None  # None = todos los símbolos permitidos
+            if metrics.win_rate_recent < 0.52 and len(symbol_performance) > 0:
+                # Obtener top 5 símbolos por desempeño
+                top_symbols = self.adaptive_filter_manager.get_top_symbols_by_performance(lookback=20, top_n=5)
+                allowed_symbols = [s[0] for s in top_symbols]
+                print(f"📊 Winrate últimos 20 trades: {metrics.win_rate_recent:.1%} < 52%. Usando solo top 5 símbolos: {allowed_symbols}")
             
-            # Verificar pausa con el mejor símbolo
-            pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=best_symbol)
+            # CONTROL DE PÉRDIDAS: Si winrate < 52%, solo permitir top 5 símbolos
+            if allowed_symbols is not None and symbol not in allowed_symbols:
+                symbol_score = self.symbol_priorities.get(symbol, 0)
+                top_symbols_str = ', '.join(allowed_symbols[:3]) + ('...' if len(allowed_symbols) > 3 else '')
+                return {
+                    'status': 'rejected',
+                    'reason': 'low_winrate_filter',
+                    'message': f'⏸️ Winrate {metrics.win_rate_recent:.1%} < 52%. Solo top 5 símbolos permitidos. {symbol} (score: {symbol_score:.2f}) no está en la lista.'
+                }
             
-            # CONTROL MEJORADO DE PÉRDIDAS: Si hay racha perdedora >= 3, usar solo mejores símbolos
-            if metrics.losing_streak >= 3:
-                # Si no es el mejor símbolo, rechazar
-                if best_symbol and symbol != best_symbol:
-                    symbol_score = self.symbol_priorities.get(symbol, 0)
-                    best_score = self.symbol_priorities.get(best_symbol, 0)
-                    return {
-                        'status': 'rejected',
-                        'reason': 'losing_streak_filter',
-                        'message': f'⏸️ Racha perdedora ({metrics.losing_streak}): Solo {best_symbol} puede operar (score: {best_score:.2f} vs {symbol_score:.2f})'
-                    }
-                
-                # Si es el mejor símbolo, permitir pero con filtros más estrictos
-                if best_symbol and symbol == best_symbol:
-                    print(f"🔄 Control de pérdidas activo: Racha {metrics.losing_streak}, operando solo {best_symbol} (score: {self.symbol_priorities.get(best_symbol, 0):.2f})")
+            # Verificar pausa solo en casos extremos (drawdown > 15% o racha >= 5)
+            pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=None)
             
             if pause_info['should_pause']:
-                # Durante pausa: solo permitir el símbolo con mejor desempeño
-                if not best_symbol:
-                    # Si no hay prioridades, rechazar todo
-                    return {
-                        'status': 'rejected',
-                        'reason': 'adaptive_pause',
-                        'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
-                    }
-                
-                # Solo permitir este símbolo durante la pausa
-                if symbol != best_symbol:
-                    return {
-                        'status': 'rejected',
-                        'reason': 'adaptive_pause',
-                        'message': f'⏸️ Pausa activa: Solo {best_symbol} puede operar (score: {self.symbol_priorities.get(best_symbol, 0):.2f})'
-                    }
-                
-                # Si es el mejor símbolo, permitir operar pero con condiciones muy estrictas
-                # (ya está en modo conservador, así que los filtros son más estrictos)
-                # Log para indicar que estamos en modo pausa selectiva
-                print(f"🔄 Modo Pausa Selectiva: Operando solo {best_symbol} para romper racha perdedora ({metrics.losing_streak})")
+                # Solo en casos extremos: pausa completa
+                return {
+                    'status': 'rejected',
+                    'reason': 'adaptive_pause',
+                    'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
+                }
             
             # MODO CONSERVADOR LIGERO si hay racha perdedora o drawdown elevados
             conservative_mode = False

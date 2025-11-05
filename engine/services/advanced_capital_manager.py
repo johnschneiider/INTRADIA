@@ -302,7 +302,7 @@ class AdvancedCapitalManager:
             method = 'Kelly Fractional (Conservative)'
             confidence = min(0.9, stats['win_rate'] * 1.1)
         
-        elif self.position_sizing_method == 'martingale' or self.enable_martingale:
+        elif False:  # MARTINGALA DESHABILITADA - No usar nunca
             # Martingala - calcular monto para recuperar pérdidas acumuladas
             # Fórmula: M_{n+1} = Pérdidas acumuladas / 0.9 (payout 90%)
             payout_rate = Decimal('0.90')  # Payout del 90%

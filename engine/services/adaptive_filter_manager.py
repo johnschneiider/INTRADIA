@@ -180,15 +180,15 @@ class AdaptiveFilterManager:
         except Exception:
             win_rate_global = 0.0
         
-        # Calcular win rate reciente (últimas 20 operaciones)
+        # Calcular win rate reciente (últimas 20 operaciones) - CRÍTICO PARA FILTRADO
         try:
-            recent_trades = OrderAudit.objects.filter(
+            recent_trades = list(OrderAudit.objects.filter(
                 accepted=True,
                 status__in=['won', 'lost']
-            ).order_by('-timestamp')[:self.win_rate_recent_lookback]
+            ).order_by('-timestamp')[:20])  # Siempre últimos 20 trades
             
-            recent_total = recent_trades.count()
-            recent_won = recent_trades.filter(status='won').count()
+            recent_total = len(recent_trades)
+            recent_won = sum(1 for t in recent_trades if t.status == 'won')
             win_rate_recent = (recent_won / recent_total) if recent_total > 0 else 0.0
         except Exception:
             win_rate_recent = 0.0
@@ -435,6 +435,17 @@ class AdaptiveFilterManager:
             'should_pause': should_pause,
             'allowed_symbol': allowed_symbol
         }
+    
+    def get_top_symbols_by_performance(self, lookback: int = 20, top_n: int = 5) -> List[Tuple[str, float]]:
+        """
+        Obtener los top N símbolos por desempeño
+        
+        Returns:
+            Lista de tuplas (símbolo, score) ordenadas por score descendente
+        """
+        symbol_perf = self.calculate_symbol_performance(lookback=lookback)
+        sorted_symbols = sorted(symbol_perf.items(), key=lambda x: x[1]['score'], reverse=True)
+        return [(s, perf['score']) for s, perf in sorted_symbols[:top_n]]
     
     def calculate_symbol_performance(self, lookback: int = 20) -> Dict[str, Dict[str, float]]:
         """

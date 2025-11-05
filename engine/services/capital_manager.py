@@ -160,7 +160,6 @@ class CapitalManager:
         
         # Calcular metas dinámicas si se usan porcentajes
         profit_target = self.targets.profit_target
-        max_loss = self.targets.max_loss
         
         if self.targets.profit_target_pct:
             profit_target = max(
@@ -168,17 +167,10 @@ class CapitalManager:
                 start_balance * Decimal(str(self.targets.profit_target_pct / 100))
             )
         
-        # Calcular max_loss considerando porcentaje (solo si max_loss_pct está definido)
-        # max_loss_pct calcula un límite negativo, así que usamos min() para obtener el más restrictivo
-        # Nota: Si stop_loss_amount está activo, max_loss_pct debería ser None
-        if self.targets.max_loss_pct is not None:
-            pct_loss = -abs(start_balance * Decimal(str(self.targets.max_loss_pct / 100)))
-            # Usar min() porque ambos son negativos, queremos el más negativo (más restrictivo)
-            max_loss = min(max_loss, pct_loss)
+        # MAX_LOSS ELIMINADO - Ya no se verifica límite de pérdida diaria
         
         # Verificar si se alcanzaron las metas
         profit_target_reached = daily_pnl >= profit_target
-        max_loss_reached = daily_pnl <= max_loss
         # LÍMITE DE TRADES DESACTIVADO: Operación perpetua sin límite
         max_trades_reached = False  # Siempre False para operación ilimitada
         
@@ -208,7 +200,7 @@ class CapitalManager:
             lost_trades=lost_trades,
             active_trades=active_trades,
             profit_target_reached=profit_target_reached,
-            max_loss_reached=max_loss_reached,
+            max_loss_reached=False,  # Siempre False - max_loss eliminado
             should_stop=should_stop,
             reason_to_stop=reason_to_stop
         )
@@ -270,7 +262,6 @@ class CapitalManager:
             f"{status_emoji} Capital Manager | "
             f"P&L: ${stats.daily_pnl:.2f} | "
             f"Meta: ${profit_target:.2f} ({progress_pct:.1f}%) | "
-            f"Límite pérdida: ${max_loss:.2f} | "
             f"Trades: {stats.trades_count}/∞ | "
             f"Win Rate: {(stats.won_trades/stats.trades_count*100):.1f}%" if stats.trades_count > 0 else "Win Rate: 0%"
         )
