@@ -519,6 +519,24 @@
                     </div>
                 </div>
                 
+                <!-- Sección de Trades Activos -->
+                <div class="bot-control-section">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h2 class="text-white mb-0">
+                            <i class="fas fa-chart-line me-2"></i>
+                            Trades Activos/Pendientes
+                        </h2>
+                        <button class="btn btn-primary btn-sm" onclick="loadActiveTrades()">
+                            <i class="fas fa-sync"></i> Actualizar
+                        </button>
+                    </div>
+                    <div id="activeTradesContainer">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-spinner fa-spin"></i> Cargando trades activos...
+                        </div>
+                    </div>
+                </div>
+                
                 <!-- Sección de Servicios -->
                 <h2 class="text-white mb-3">
                     <i class="fas fa-server me-2"></i>
@@ -983,6 +1001,122 @@
         refreshServiceLog('daphne');
     }
     
+    function loadActiveTrades() {
+        const container = document.getElementById('activeTradesContainer');
+        container.innerHTML = '<div class="text-center text-muted"><i class="fas fa-spinner fa-spin"></i> Cargando...</div>';
+        
+        fetch('{% url "engine:active-trades" %}')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    renderActiveTrades(data.trades || []);
+                } else {
+                    container.innerHTML = `<div class="alert alert-error">Error: ${data.error || 'Error desconocido'}</div>`;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                container.innerHTML = '<div class="alert alert-error">Error al cargar trades activos</div>';
+            });
+    }
+    
+    function renderActiveTrades(trades) {
+        const container = document.getElementById('activeTradesContainer');
+        
+        if (trades.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <i class="fas fa-check-circle"></i>
+                    <p>No hay trades activos o pendientes</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = `
+            <div class="table-responsive">
+                <table class="table table-dark table-hover">
+                    <thead>
+                        <tr>
+                            <th>Símbolo</th>
+                            <th>Dirección</th>
+                            <th>Precio</th>
+                            <th>Monto</th>
+                            <th>Contract ID</th>
+                            <th>Hace</th>
+                            <th>Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${trades.map(trade => `
+                            <tr>
+                                <td><strong>${escapeHtml(trade.symbol)}</strong></td>
+                                <td>
+                                    <span class="badge ${trade.direction === 'CALL' ? 'bg-success' : 'bg-danger'}">
+                                        ${escapeHtml(trade.direction)}
+                                    </span>
+                                </td>
+                                <td>$${parseFloat(trade.price).toFixed(2)}</td>
+                                <td>$${parseFloat(trade.amount).toFixed(2)}</td>
+                                <td style="font-family: monospace; font-size: 0.85rem;">${escapeHtml(trade.contract_id || 'N/A')}</td>
+                                <td>${parseFloat(trade.hours_ago).toFixed(2)}h</td>
+                                <td>
+                                    <button class="btn btn-sm btn-danger" onclick="closeTrade(${trade.id}, '${escapeHtml(trade.contract_id || '')}')" 
+                                            ${!trade.contract_id ? 'disabled title="No hay contract_id disponible"' : ''}>
+                                        <i class="fas fa-times"></i> Cerrar
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-2 text-muted">
+                <small>Total: ${trades.length} trade(s) activo(s)</small>
+            </div>
+        `;
+    }
+    
+    function closeTrade(tradeId, contractId) {
+        if (!confirm('¿Está seguro de que desea cerrar este trade? Esta acción no se puede deshacer.')) {
+            return;
+        }
+        
+        const btn = event.target.closest('button');
+        const originalHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cerrando...';
+        
+        fetch('{% url "engine:close-trade" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                trade_id: tradeId,
+                contract_id: contractId
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert(`Trade cerrado exitosamente. Profit: $${parseFloat(data.result.profit || 0).toFixed(2)}`, 'success');
+                loadActiveTrades(); // Recargar lista
+            } else {
+                showAlert(`Error al cerrar trade: ${data.error}`, 'error');
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showAlert('Error de conexión al cerrar trade', 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        });
+    }
+    
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -1003,12 +1137,14 @@
         loadServicesStatus();
         updateBotControl();
         refreshAllServiceLogs();
+        loadActiveTrades(); // Cargar trades activos
         
         // Auto-refresh cada 30 segundos
         statusInterval = setInterval(() => {
             loadServicesStatus();
             updateBotControl();
             refreshAllServiceLogs();
+            loadActiveTrades(); // Actualizar trades activos
         }, 30000);
         
         // Auto-refresh logs cada 10 segundos

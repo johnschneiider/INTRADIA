@@ -1142,6 +1142,51 @@ class DerivClient:
         self._heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
         self._heartbeat_thread.start()
     
+    def sell_contract(self, contract_id: str) -> Dict[str, Any]:
+        """
+        Cerrar/vender un contrato abierto antes de que expire
+        
+        Args:
+            contract_id: ID del contrato a cerrar
+            
+        Returns:
+            Diccionario con el resultado de la venta
+        """
+        try:
+            if not self.connected:
+                if not self.authenticate():
+                    return {'error': 'Not connected'}
+            
+            self.response_event.clear()
+            
+            # En Deriv, para cerrar un contrato se envía el contract_id directamente
+            sell_msg = {
+                'sell': contract_id
+            }
+            self.ws.send(json.dumps(sell_msg))
+            
+            if self.response_event.wait(timeout=10):
+                data = self.response_data
+                
+                if data.get('error'):
+                    return {'error': data['error'].get('message', 'Error desconocido')}
+                
+                sell_result = data.get('sell', {})
+                
+                return {
+                    'success': True,
+                    'contract_id': contract_id,
+                    'profit': sell_result.get('profit', 0),
+                    'price': sell_result.get('price', 0),
+                    'balance_after': sell_result.get('balance_after', 0)
+                }
+            else:
+                return {'error': 'timeout'}
+                
+        except Exception as e:
+            print(f"Error sell_contract: {e}")
+            return {'error': str(e)}
+    
     def _stop_heartbeat(self):
         """Detener heartbeat"""
         self._heartbeat_running = False

@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import status, get_balance, get_trades, metrics, test_deriv_connection, orders, backtest_run, trader_kill, policy_promote, dashboard, candles, ticks_realtime, capital_config, trading_config_api, quick_controls_api, services_admin, services_status_api, services_restart_api, services_logs_api, trading_loop_control_api
+from .views import status, get_balance, get_trades, metrics, test_deriv_connection, orders, backtest_run, trader_kill, policy_promote, dashboard, candles, ticks_realtime, capital_config, trading_config_api, quick_controls_api, services_admin, services_status_api, services_restart_api, services_logs_api, trading_loop_control_api, active_trades_api, close_trade_api
 
 app_name = 'engine'
 
@@ -24,5 +24,7 @@ urlpatterns = [
     path('api/services/restart/', services_restart_api, name='services-restart'),
     path('api/services/logs/', services_logs_api, name='services-logs'),
     path('api/trading-loop/control/', trading_loop_control_api, name='trading-loop-control'),
+    path('api/trades/active/', active_trades_api, name='active-trades'),
+    path('api/trades/close/', close_trade_api, name='close-trade'),
 ]
 
