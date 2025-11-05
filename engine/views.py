@@ -20,6 +20,165 @@ def status(request):
     return Response({'status': 'ok'})
 
 
+@login_required
+def dashboard(request):
+    """Renderizar el dashboard principal con precios en tiempo real"""
+    return render(request, 'dashboard_precios_realtime_v2.html')
+
+
+@api_view(['GET'])
+def get_trades(request):
+    """Obtener operaciones activas y finalizadas"""
+    try:
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        # Historial persistente desde la BD (no limitar a 30 minutos)
+        # Mostrar las últimas 200 operaciones, incluyendo finalizadas antiguas
+        trades = OrderAudit.objects.all().order_by('-timestamp')[:200]
+        
+        active = []
+        completed = []
+        
+        for trade in trades:
+            # Obtener monto/stake REAL del trade (prioridad al monto final usado)
+            amount = None
+            
+            # 1. Primero intentar desde response_payload['amount'] (monto REAL usado después de ajustes)
+            if trade.response_payload:
+                amount = trade.response_payload.get('amount')
+                if amount:
+                    amount = float(amount)
+            
+            # 2. Si no está en response_payload, usar size (campo directo del modelo)
+            if not amount and trade.size:
+                amount = float(trade.size)
+            
+            # 3. Si aún no tenemos monto, intentar desde request_payload
+            if not amount and trade.request_payload:
+                # Intentar obtener desde position_sizing (monto calculado, puede diferir del real)
+                position_sizing = trade.request_payload.get('position_sizing', {})
+                if position_sizing:
+                    amount = position_sizing.get('risk_amount') or position_sizing.get('amount')
+                    if amount:
+                        amount = float(amount)
+                # Si no está en position_sizing, buscar en el request directamente
+                if not amount:
+                    amount = trade.request_payload.get('amount') or trade.request_payload.get('stake')
+                    if amount:
+                        amount = float(amount)
+            
+            # Si aún no tenemos monto, usar 0.0 (no debería pasar)
+            if not amount:
+                amount = 0.0
+            
+            # Extraer contract_id del payload si existe
+            contract_id = None
+            try:
+                if trade.response_payload and isinstance(trade.response_payload, dict):
+                    contract_id = (
+                        trade.response_payload.get('order_id') or
+                        trade.response_payload.get('contract_id') or
+                        (trade.response_payload.get('buy', {}).get('contract_id') if isinstance(trade.response_payload.get('buy'), dict) else None)
+                    )
+            except Exception:
+                contract_id = None
+
+            # Extraer confianza (0-1) y convertir a porcentaje (0-100)
+            confidence_pct = None
+            try:
+                # Preferir la confianza guardada en position_sizing
+                if trade.request_payload and isinstance(trade.request_payload, dict):
+                    pos_sizing = trade.request_payload.get('position_sizing') or {}
+                    conf_val = pos_sizing.get('confidence')
+                    if conf_val is None:
+                        # Alternativa: confianza del propio signal (estrategia estadística)
+                        conf_val = trade.request_payload.get('confidence')
+                    if conf_val is not None:
+                        confidence_pct = float(conf_val) * 100.0 if float(conf_val) <= 1.0 else float(conf_val)
+            except Exception:
+                confidence_pct = None
+
+            # Extraer estrategia del request_payload
+            strategy_name = None
+            try:
+                internal_name = trade.request_payload.get('strategy')
+                # Fallback heurístico si 'strategy' no está presente en el payload
+                if not internal_name:
+                    if 'z_score' in trade.request_payload or 'signal_type' in trade.request_payload:
+                        internal_name = 'statistical_hybrid'
+                    elif 'ema200' in trade.request_payload or 'recent_high' in trade.request_payload:
+                        internal_name = 'ema200_extrema'
+                    elif 'force_pct' in trade.request_payload:
+                        internal_name = 'tick_based'
+                    elif 'fatigue_count' in trade.request_payload or 'momentum_extreme' in trade.request_payload or 'divergence_score' in trade.request_payload:
+                        internal_name = 'momentum_reversal'
+                # Mapear a nombres cortos y dicientes
+                if internal_name == 'statistical_hybrid':
+                    strategy_name = 'Híbrida'
+                elif internal_name == 'ema200_extrema':
+                    strategy_name = 'EMA100'
+                elif internal_name == 'tick_based':
+                    strategy_name = 'Ticks'
+                elif internal_name == 'momentum_reversal':
+                    strategy_name = 'Reversión'
+                else:
+                    strategy_name = 'Desconocida'
+            except Exception:
+                strategy_name = 'Desconocida'
+            
+            trade_data = {
+                'id': trade.id,
+                'symbol': trade.symbol,
+                'direction': trade.action.upper(),
+                'price': float(trade.price) if trade.price else 0.0,
+                'timestamp': trade.timestamp.isoformat(),
+                'status': trade.status,
+                'amount': amount,  # Monto REAL usado en el trade
+                'pnl': float(trade.pnl) if trade.pnl else 0.0,  # P&L para operaciones finalizadas
+                'contract_id': contract_id,
+                'confidence_pct': confidence_pct,
+                'strategy': strategy_name
+            }
+            
+            if trade.status in ['pending', 'active']:
+                active.append(trade_data)
+            else:
+                completed.append(trade_data)
+        
+        # MÉTRICAS: Operaciones en las últimas 24 horas
+        since_metrics = timezone.now() - timedelta(hours=24)
+        recent_trades = OrderAudit.objects.filter(timestamp__gte=since_metrics)
+        
+        total_trades = recent_trades.count()
+        won_trades = recent_trades.filter(status='won').count()
+        lost_trades = recent_trades.filter(status='lost').count()
+        active_trades = recent_trades.filter(status__in=['pending', 'active']).count()
+        
+        # P&L total de las últimas 24 horas
+        total_pnl = sum(float(t.pnl or 0) for t in recent_trades)
+        
+        # Win rate
+        win_rate = (won_trades / (won_trades + lost_trades)) * 100 if (won_trades + lost_trades) > 0 else 0
+        
+        return JsonResponse({
+            'success': True,
+            'active': active,
+            'completed': completed,
+            'metrics': {
+                'total_pnl': total_pnl,
+                'win_rate': win_rate,
+                'total_trades': total_trades,
+                'active_trades': active_trades
+            }
+        })
+    except Exception as e:
+        return JsonResponse({
+            'success': False,
+            'error': str(e)
+        }, status=500)
+
+
 @api_view(['GET'])
 def get_balance(request):
     """Obtener balance de Deriv con manejo de rate limiting"""

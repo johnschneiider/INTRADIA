@@ -2,7 +2,9 @@ from django.urls import path
 from .views import (
     status, 
     get_balance, 
+    get_trades,
     metrics,
+    dashboard,
     capital_config, 
     trading_config_api,
     quick_controls_api, 
@@ -18,9 +20,10 @@ from .views import (
 app_name = 'engine'
 
 urlpatterns = [
-    path('', capital_config, name='dashboard'),  # Temporal: redirigir a capital_config
+    path('', dashboard, name='dashboard'),
     path('status/', status, name='status'),
     path('balance/', get_balance, name='balance'),
+    path('trades/', get_trades, name='trades'),
     path('metrics/', metrics, name='metrics'),
     path('capital-config/', capital_config, name='capital-config'),
     path('trading-config-api/', trading_config_api, name='trading-config-api'),
