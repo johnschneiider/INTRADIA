@@ -573,21 +573,19 @@ class TickTradingLoop:
             if symbol in symbol_perf:
                 # Usar score del activo específico (0-1) -> $0.35 - $1.00
                 score = symbol_perf[symbol]['score']
-                amount = 0.35 + (0.65 * float(score))
+                amount = round(0.35 + (0.65 * float(score)), 2)  # Redondear a 2 decimales
                 print(f"  💰 {symbol}: Score últimos 20 trades = {score:.3f} → Monto = ${amount:.2f}")
             else:
                 # Si no hay suficientes trades del activo, usar score promedio o mínimo
                 # Calcular promedio de scores de todos los símbolos con datos
                 if symbol_perf:
                     avg_score = sum(p['score'] for p in symbol_perf.values()) / len(symbol_perf)
-                    amount = 0.35 + (0.65 * float(avg_score))
+                    amount = round(0.35 + (0.65 * float(avg_score)), 2)  # Redondear a 2 decimales
                     print(f"  ⚠️ {symbol}: Sin datos suficientes, usando score promedio = {avg_score:.3f} → Monto = ${amount:.2f}")
                 else:
                     # Si no hay ningún dato, usar mínimo
                     amount = 0.35
                     print(f"  ⚠️ {symbol}: Sin datos históricos, usando monto mínimo = ${amount:.2f}")
-            
-            amount = round(amount, 2)
 
             # En recuperación: bajar un 20% adicional el tamaño, respetando $0.35
             if getattr(self, 'recovery_mode', False):
