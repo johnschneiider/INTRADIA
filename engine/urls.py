@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     status, 
     get_balance, 
+    metrics,
     capital_config, 
     quick_controls_api, 
     services_admin, 
@@ -19,6 +20,7 @@ urlpatterns = [
     path('', capital_config, name='dashboard'),  # Temporal: redirigir a capital_config
     path('status/', status, name='status'),
     path('balance/', get_balance, name='balance'),
+    path('metrics/', metrics, name='metrics'),
     path('capital-config/', capital_config, name='capital-config'),
     path('quick-controls-api/', quick_controls_api, name='quick-controls-api'),
     path('services-admin/', services_admin, name='services-admin'),

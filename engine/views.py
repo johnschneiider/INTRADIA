@@ -133,6 +133,50 @@ def get_balance(request):
             'balance': 0
         }, status=500)
 
+
+@api_view(['GET'])
+def metrics(request):
+    """Métricas en tiempo real del sistema"""
+    try:
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        # Operaciones en las últimas 24 horas
+        since_metrics = timezone.now() - timedelta(hours=24)
+        recent_trades = OrderAudit.objects.filter(timestamp__gte=since_metrics)
+        
+        total_trades = recent_trades.count()
+        won_trades = recent_trades.filter(status='won').count()
+        lost_trades = recent_trades.filter(status='lost').count()
+        active_trades = recent_trades.filter(status__in=['pending', 'active']).count()
+        
+        # P&L total de las últimas 24 horas
+        total_pnl = sum(float(t.pnl or 0) for t in recent_trades)
+        
+        # Win rate
+        completed_trades = won_trades + lost_trades
+        winrate = (won_trades / completed_trades) if completed_trades > 0 else 0
+        
+        return JsonResponse({
+            'pnl': total_pnl,
+            'winrate': winrate,
+            'total_trades': total_trades,
+            'active_trades': active_trades,
+            'won_trades': won_trades,
+            'lost_trades': lost_trades
+        })
+    except Exception as e:
+        return JsonResponse({
+            'error': str(e),
+            'pnl': 0.0,
+            'winrate': 0.0,
+            'total_trades': 0,
+            'active_trades': 0,
+            'won_trades': 0,
+            'lost_trades': 0
+        }, status=500)
+
+
 @login_required
 def capital_config(request):
     """Vista para mostrar y editar configuración de capital"""
