@@ -97,11 +97,12 @@ class AdvancedCapitalManager:
         self.risk_per_trade_pct = risk_per_trade_pct
         self.anti_martingale_multiplier = anti_martingale_multiplier
         self.anti_martingale_reset_on_loss = anti_martingale_reset_on_loss
-        self.enable_martingale = enable_martingale
-        self.martingale_multiplier = martingale_multiplier
-        self.martingale_base_amount = martingale_base_amount
-        self.martingale_max_levels = martingale_max_levels
-        self.martingale_reset_on_win = martingale_reset_on_win
+        # MARTINGALA DESHABILITADA - No usar nunca
+        self.enable_martingale = False
+        self.martingale_multiplier = 0
+        self.martingale_base_amount = Decimal('0')
+        self.martingale_max_levels = 0
+        self.martingale_reset_on_win = True
         self.atr_multiplier = atr_multiplier
         self.max_risk_per_trade_pct = max_risk_per_trade_pct
         self.max_drawdown_pct = max_drawdown_pct

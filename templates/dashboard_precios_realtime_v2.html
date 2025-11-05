@@ -781,7 +781,25 @@
     async function updateBalance() {
         try {
             const response = await fetch('/engine/balance/');
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
             const data = await response.json();
+            
+            // Actualizar estado de conexión basado en la respuesta
+            const connectionStatusNav = document.getElementById('connectionStatusNav');
+            if (connectionStatusNav) {
+                if (data.success && data.connected !== false) {
+                    connectionStatusNav.className = 'nav-link connected';
+                    connectionStatusNav.innerHTML = '<i class="fas fa-circle"></i> Conectado';
+                } else {
+                    connectionStatusNav.className = 'nav-link disconnected';
+                    connectionStatusNav.innerHTML = '<i class="fas fa-circle"></i> Desconectado';
+                }
+            }
+            
             if (data.success && data.balance !== undefined) {
                 const balance = parseFloat(data.balance);
                 const formattedBalance = '$' + balance.toFixed(2);
@@ -804,9 +822,39 @@
                 if (headerBalanceElement) {
                     headerBalanceElement.textContent = formattedBalance;
                 }
+                
+                // Si hay warning (rate limit), mostrarlo en consola
+                if (data.warning) {
+                    console.warn('⚠️ Balance:', data.warning);
+                }
+            } else {
+                // Si hay error, mostrar en consola y actualizar UI
+                const errorMsg = data.error || 'Error desconocido al obtener balance';
+                console.error('❌ Error obteniendo balance:', errorMsg);
+                
+                // Mostrar error en la tarjeta de balance
+                const mainBalanceElement = document.getElementById('mainBalanceAmount');
+                if (mainBalanceElement) {
+                    mainBalanceElement.textContent = '$0.00';
+                    mainBalanceElement.title = errorMsg;
+                }
             }
         } catch (error) {
-            console.error('Error fetching balance:', error);
+            console.error('❌ Error fetching balance:', error);
+            
+            // Actualizar estado a desconectado
+            const connectionStatusNav = document.getElementById('connectionStatusNav');
+            if (connectionStatusNav) {
+                connectionStatusNav.className = 'nav-link disconnected';
+                connectionStatusNav.innerHTML = '<i class="fas fa-circle"></i> Desconectado';
+            }
+            
+            // Mostrar 0.00 si hay error
+            const mainBalanceElement = document.getElementById('mainBalanceAmount');
+            if (mainBalanceElement) {
+                mainBalanceElement.textContent = '$0.00';
+                mainBalanceElement.title = `Error: ${error.message}`;
+            }
         }
     }
     

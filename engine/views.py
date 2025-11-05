@@ -251,8 +251,20 @@ def get_balance(request):
                 api_token = config.api_token
                 is_demo = config.is_demo
                 app_id = config.app_id
+                print(f"✅ Configuración encontrada: is_demo={is_demo}, app_id={app_id}, token={api_token[:10] if api_token else 'None'}...")
+            else:
+                print("⚠️ No se encontró configuración activa de DerivAPIConfig")
+                return JsonResponse({
+                    'success': False,
+                    'error': 'No hay configuración de API activa',
+                    'balance': 0.0,
+                    'currency': 'USD',
+                    'account_type': 'unknown'
+                }, status=500)
         except Exception as e:
             print(f"⚠️ Error al obtener configuración en get_balance: {e}")
+            import traceback
+            traceback.print_exc()
             # Si hay error, intentar obtener de forma alternativa
             try:
                 from django.db import connection
@@ -268,9 +280,26 @@ def get_balance(request):
                         api_token = row[0] or ''
                         is_demo = bool(row[1]) if row[1] is not None else False
                         app_id = row[2] or '1089'
+                        print(f"✅ Configuración obtenida vía SQL: is_demo={is_demo}, app_id={app_id}")
             except Exception as e2:
                 print(f"⚠️ Error al obtener configuración con SQL: {e2}")
-                pass  # Usar defaults si no hay configuración
+                return JsonResponse({
+                    'success': False,
+                    'error': f'Error obteniendo configuración: {str(e2)}',
+                    'balance': 0.0,
+                    'currency': 'USD',
+                    'account_type': 'unknown'
+                }, status=500)
+        
+        if not api_token:
+            print("❌ No hay token de API disponible")
+            return JsonResponse({
+                'success': False,
+                'error': 'No hay token de API configurado',
+                'balance': 0.0,
+                'currency': 'USD',
+                'account_type': 'unknown'
+            }, status=500)
         
         # Reutilizar cliente compartido global para evitar múltiples conexiones
         global _shared_deriv_client_web
@@ -278,12 +307,14 @@ def get_balance(request):
             _shared_deriv_client_web
         except NameError:
             # Crear cliente compartido solo una vez
+            print("🔧 Creando nuevo cliente Deriv compartido")
             _shared_deriv_client_web = DerivClient(api_token=api_token, is_demo=is_demo, app_id=app_id)
         else:
             # Actualizar configuración si cambió
             if (_shared_deriv_client_web.api_token != api_token or 
                 _shared_deriv_client_web.is_demo != is_demo or
                 _shared_deriv_client_web.app_id != app_id):
+                print("🔧 Configuración cambió, recreando cliente")
                 # Cerrar conexión anterior si existe
                 try:
                     if _shared_deriv_client_web.ws:
@@ -294,11 +325,44 @@ def get_balance(request):
                 _shared_deriv_client_web = DerivClient(api_token=api_token, is_demo=is_demo, app_id=app_id)
         
         client = _shared_deriv_client_web
+        
+        # Verificar estado de conexión antes de obtener balance
+        print(f"🔍 Estado del cliente: connected={client.connected}, ws={client.ws is not None}, ws_connected={client.ws.sock.connected if client.ws and client.ws.sock else False}")
+        
+        # Si no está conectado, intentar autenticar
+        if not client.connected or not client.ws or not client.ws.sock or not client.ws.sock.connected:
+            print("⚠️ Cliente no conectado, intentando autenticar...")
+            if not client.authenticate():
+                print("❌ Fallo en autenticación")
+                return JsonResponse({
+                    'success': False,
+                    'error': 'No se pudo conectar/autenticar con Deriv API',
+                    'balance': 0.0,
+                    'currency': 'USD',
+                    'account_type': 'demo' if is_demo else 'real',
+                    'connected': False
+                }, status=500)
+            print("✅ Autenticación exitosa")
+        
         balance_info = client.get_balance()
+        
+        # Verificar si hay error en la respuesta
+        if balance_info.get('error'):
+            error_msg = balance_info.get('error', 'Error desconocido')
+            print(f"❌ Error obteniendo balance: {error_msg}")
+            return JsonResponse({
+                'success': False,
+                'error': str(error_msg),
+                'balance': balance_info.get('balance', 0),
+                'currency': balance_info.get('currency', 'USD'),
+                'account_type': balance_info.get('account_type', 'demo' if is_demo else 'real'),
+                'connected': False
+            }, status=500)
         
         # Verificar si hay error de rate limit pero hay balance en caché
         if balance_info.get('error_code') == 'RateLimit':
             # Balance está en caché (último conocido)
+            print("⚠️ Rate limit alcanzado, usando balance en caché")
             return JsonResponse({
                 'success': True,
                 'balance': balance_info.get('balance', 0),
@@ -306,17 +370,25 @@ def get_balance(request):
                 'account_type': balance_info.get('account_type', 'demo'),
                 'cached': True,
                 'warning': 'Rate limit alcanzado, mostrando balance en caché',
-                'source': balance_info.get('source', 'cache')
+                'source': balance_info.get('source', 'cache'),
+                'connected': True
             })
+        
+        balance_value = balance_info.get('balance', 0)
+        print(f"✅ Balance obtenido: ${balance_value}")
         
         return JsonResponse({
             'success': True,
-            'balance': balance_info.get('balance', 0),
+            'balance': balance_value,
             'currency': balance_info.get('currency', 'USD'),
             'account_type': balance_info.get('account_type', 'demo'),
-            'cached': False
+            'cached': False,
+            'connected': True
         })
     except Exception as e:
+        print(f"❌ Excepción en get_balance: {e}")
+        import traceback
+        traceback.print_exc()
         # Si hay error, intentar obtener del último trade
         try:
             from monitoring.models import OrderAudit
