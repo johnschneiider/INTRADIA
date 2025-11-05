@@ -122,6 +122,8 @@ class AdaptiveFilterManager:
         self.recovery_progress = 0  # 0-100: Progreso de recuperación
         self.pause_active = False  # Si la pausa está activa
         self.pause_allowed_symbol = None  # Símbolo permitido durante pausa
+        self.pause_reason: str = ''
+        self._last_probe_ts: float | None = None  # Último intento de micro‑trade durante pausa
         
         # Parámetros actuales ajustados
         self.current_parameters = AdaptiveParameters(
@@ -420,6 +422,7 @@ class AdaptiveFilterManager:
             should_pause = False
             self.pause_active = False
             self.pause_allowed_symbol = None
+            self.pause_reason = ''
         
         allowed_symbol = None
         if should_pause:
@@ -427,13 +430,24 @@ class AdaptiveFilterManager:
             # Usar el símbolo proporcionado (mejor desempeño)
             allowed_symbol = best_symbol if best_symbol else None
             self.pause_allowed_symbol = allowed_symbol
+            # Construir motivo humano‑legible
+            reasons = []
+            if metrics.drawdown_pct > self.drawdown_level_3:
+                reasons.append(f"drawdown {metrics.drawdown_pct:.1%} > {self.drawdown_level_3:.0%}")
+            if metrics.losing_streak >= 5:
+                reasons.append(f"racha perdedora {metrics.losing_streak}")
+            self.pause_reason = ", ".join(reasons) or "condiciones adversas"
         else:
             self.pause_active = False
             self.pause_allowed_symbol = None
+            self.pause_reason = ''
         
         return {
             'should_pause': should_pause,
-            'allowed_symbol': allowed_symbol
+            'allowed_symbol': allowed_symbol,
+            'pause_reason': self.pause_reason,
+            # Cooldown recomendado entre micro‑probes (segundos)
+            'cooldown_seconds': 180
         }
     
     def get_top_symbols_by_performance(self, lookback: int = 20, top_n: int = 5) -> List[Tuple[str, float]]:

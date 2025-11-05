@@ -374,14 +374,27 @@ class TickTradingLoop:
                 top_symbol = None
             pause_info = self.adaptive_filter_manager.should_pause_trading(metrics, best_symbol=top_symbol)
             
-            if pause_info['should_pause']:
-                if pause_info.get('allowed_symbol') and symbol == pause_info['allowed_symbol']:
-                    print(f"🧘 Pausa activa: se permite operar el mejor símbolo {symbol}")
+            if pause_info.get('should_pause'):
+                allowed = pause_info.get('allowed_symbol')
+                cooldown = int(pause_info.get('cooldown_seconds', 180))
+                if allowed and symbol == allowed:
+                    # Chequear cooldown para micro‑probe
+                    now_ts = timezone.now().timestamp()
+                    last_ts = getattr(self.adaptive_filter_manager, '_last_probe_ts', None)
+                    if last_ts is not None and (now_ts - last_ts) <= cooldown:
+                        return {
+                            'status': 'rejected',
+                            'reason': 'adaptive_pause',
+                            'message': f'Pausa activa ({pause_info.get("pause_reason", "")}). Esperando cooldown para {allowed}'
+                        }
+                    # Registrar probe (permitir continuar con filtros normales)
+                    self.adaptive_filter_manager._last_probe_ts = now_ts
+                    print(f"🧘 Pausa activa: micro‑probe en {symbol} (cooldown {cooldown}s)")
                 else:
                     return {
                         'status': 'rejected',
                         'reason': 'adaptive_pause',
-                        'message': f'Trading pausado: Drawdown {metrics.drawdown_pct:.1%} o racha perdedora {metrics.losing_streak}'
+                        'message': f'Trading pausado ({pause_info.get("pause_reason", "")}). Permitido solo: {allowed or "ninguno"}'
                     }
             
             # MODO CONSERVADOR LIGERO si hay racha perdedora o drawdown elevados
