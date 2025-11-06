@@ -106,6 +106,18 @@ class TickTradingLoop:
         elif previous_level > 0:
             print("🟢 Relajación desactivada. Restableciendo filtros normales.")
 
+    def _json_safe(self, data: Any) -> Any:
+        """Convertir estructuras a tipos compatibles con JSON (manejar Decimal, set, etc.)."""
+        if isinstance(data, Decimal):
+            return float(data)
+        if isinstance(data, set):
+            return [self._json_safe(item) for item in data]
+        if isinstance(data, (list, tuple)):
+            return [self._json_safe(item) for item in data]
+        if isinstance(data, dict):
+            return {key: self._json_safe(value) for key, value in data.items()}
+        return data
+
     def _estimate_symbol_score_from_ticks(self, symbol: str) -> float:
         """Calcular un score heurístico basado en ticks recientes cuando no hay trades."""
         try:
@@ -1429,7 +1441,7 @@ class TickTradingLoop:
 
             # Agregar información de posición sizing
             if position_size_info:
-                request_payload['position_sizing'] = position_size_info
+                request_payload['position_sizing'] = self._json_safe(position_size_info)
 
             # Asegurar que SIEMPRE haya una confianza presente en el payload
             calculated_confidence = None
@@ -1463,7 +1475,7 @@ class TickTradingLoop:
                     request_payload['position_sizing']['confidence'] = calculated_confidence
             
             # Agregar información de riesgo al response payload
-            response_payload = result.copy()
+            response_payload = self._json_safe(result.copy())
             
             # Guardar información de error detallada en response_payload si el trade fue rechazado
             if not result.get('accepted'):
@@ -1480,7 +1492,7 @@ class TickTradingLoop:
                 response_payload['amount'] = result.get('amount')
             
             if position_size_info:
-                response_payload['risk_amount'] = position_size_info.get('risk_amount')
+                response_payload['risk_amount'] = float(position_size_info.get('risk_amount')) if position_size_info.get('risk_amount') is not None else None
                 response_payload['position_sizing_method'] = position_size_info.get('method')
             
             # Obtener el monto real usado (después de todos los ajustes)
@@ -1562,8 +1574,8 @@ class TickTradingLoop:
                             size=size_value,  # Monto REAL usado
                             price=signal.entry_price,
                             status='pending' if result.get('accepted') else 'rejected',
-                            request_payload=request_payload,
-                            response_payload=response_payload,  # Ya incluye error_code y error_data si existen
+                            request_payload=self._json_safe(request_payload),
+                            response_payload=self._json_safe(response_payload),  # Ya incluye error_code y error_data si existen
                             accepted=result.get('accepted', False),
                             reason=result.get('reason', 'unknown') if not result.get('accepted') else '',
                             error_message=error_message_final  # Mensaje completo con código y mensaje
