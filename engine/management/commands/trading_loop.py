@@ -584,6 +584,44 @@ class Command(BaseCommand):
             for trade in pending_trades:
                 # Tiempo transcurrido desde la apertura
                 elapsed = (timezone.now() - trade.timestamp).total_seconds()
+                elapsed_hours = elapsed / 3600
+                
+                # AUTOLIMPIEZA: Si tiene más de 2 horas, marcarlo como expirado automáticamente
+                if elapsed_hours > 2.0:
+                    logger.warning(f"Trade {trade.id} ({trade.symbol}): Muy antiguo ({elapsed_hours:.2f}h), marcando como expirado")
+                    try:
+                        trade.status = 'lost'
+                        trade.pnl = -Decimal(str(trade.size or 0))
+                        
+                        # Actualizar response_payload
+                        if not trade.response_payload:
+                            trade.response_payload = {}
+                        elif isinstance(trade.response_payload, str):
+                            try:
+                                import json
+                                trade.response_payload = json.loads(trade.response_payload)
+                            except:
+                                trade.response_payload = {}
+                        
+                        trade.response_payload['auto_expired'] = True
+                        trade.response_payload['auto_expired_at'] = timezone.now().isoformat()
+                        trade.response_payload['age_hours'] = round(elapsed_hours, 2)
+                        trade.response_payload['reason'] = f'Auto-expirado: más de 2 horas en estado pending/active'
+                        
+                        trade.save(update_fields=['status', 'pnl', 'response_payload'])
+                        updated_count += 1
+                        
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f'  ⚠️ {trade.symbol}: Auto-expirado ({elapsed_hours:.1f}h) - P&L: ${trade.pnl:.2f}'
+                            )
+                        )
+                    except Exception as e:
+                        logger.error(f"Error auto-expirando trade {trade.id}: {e}")
+                        error_count += 1
+                    
+                    continue  # Ya procesado, continuar con siguiente
+                
                 # Duración esperada por tipo de símbolo (binarias 30s, forex 60s)
                 expected_duration = 60 if str(trade.symbol).startswith('frx') else 30
                 # Gracia adicional para reconexiones
