@@ -1008,32 +1008,33 @@ def services_restart_api(request):
 
 @login_required
 def services_logs_api(request):
-    """API para obtener los últimos logs de un servicio"""
+    """API para obtener los últimos logs de un servicio usando journalctl"""
     import subprocess
     import json
     
     service_key = request.GET.get('service')
     lines = int(request.GET.get('lines', 50))
     
-    # Mapeo de servicios y sus archivos de log
-    log_files = {
-        'trading-loop': '/var/log/intradia/trading_loop.log',
-        'daphne': '/var/log/intradia/daphne.log',
-        'save-ticks': '/var/log/intradia/save_ticks.log',
-        'gunicorn': '/var/log/gunicorn/intradia_error.log',
+    # Mapeo de servicios y sus nombres en systemd
+    service_map = {
+        'trading-loop': 'intradia-trading-loop',
+        'daphne': 'intradia-daphne',
+        'save-ticks': 'intradia-save-ticks',
+        'gunicorn': 'intradia-gunicorn',
     }
     
-    if service_key not in log_files:
+    if service_key not in service_map:
         return JsonResponse({
             'success': False,
             'message': f'Servicio "{service_key}" no válido'
         }, status=400)
     
-    log_file = log_files[service_key]
+    systemd_service = service_map[service_key]
     
     try:
+        # Usar journalctl para obtener logs del servicio
         result = subprocess.run(
-            ['/usr/bin/tail', '-n', str(lines), log_file],
+            ['journalctl', '-u', systemd_service, '-n', str(lines), '--no-pager'],
             capture_output=True,
             text=True,
             timeout=10
