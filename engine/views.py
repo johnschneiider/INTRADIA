@@ -1032,9 +1032,24 @@ def services_logs_api(request):
     systemd_service = service_map[service_key]
     
     try:
-        # Usar journalctl para obtener logs del servicio
+        # Los logs están en archivos, no en journalctl
+        log_files = {
+            'trading-loop': '/var/log/intradia/trading_loop.log',
+            'daphne': '/var/log/intradia/daphne.log',
+            'save-ticks': '/var/log/intradia/save_ticks.log',
+            'gunicorn': '/var/log/gunicorn/intradia_error.log',
+        }
+        
+        log_file = log_files.get(service_key)
+        if not log_file:
+            return JsonResponse({
+                'success': False,
+                'message': f'Servicio "{service_key}" no tiene archivo de log configurado'
+            }, status=400)
+        
+        # Leer archivo de log directamente
         result = subprocess.run(
-            ['journalctl', '-u', systemd_service, '-n', str(lines), '--no-pager'],
+            ['/usr/bin/tail', '-n', str(lines), log_file],
             capture_output=True,
             text=True,
             timeout=10
