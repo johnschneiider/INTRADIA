@@ -648,15 +648,20 @@ class Command(BaseCommand):
                         error_count += 1
                         continue
                     
-                    # Si is_sold=True, el contrato se cerró en Deriv
-                    if contract_info.get('is_sold'):
-                        new_status = 'won' if contract_info.get('profit', 0) > 0 else 'lost'
+                    # Deriv puede devolver is_sold como 1/0 (int) o True/False (bool)
+                    is_sold_raw = contract_info.get('is_sold', False)
+                    is_sold = bool(is_sold_raw) if is_sold_raw is not None else False
+                    
+                    # Si is_sold=True (o 1), el contrato se cerró en Deriv
+                    if is_sold:
+                        profit = float(contract_info.get('profit', 0) or 0)
+                        new_status = 'won' if profit > 0 else 'lost'
                         trade.status = new_status
+                        trade.pnl = profit
                         
-                        if contract_info.get('profit') is not None:
-                            trade.pnl = float(contract_info['profit'])
-                        if contract_info.get('sell_price'):
-                            trade.exit_price = float(contract_info['sell_price'])
+                        sell_price = contract_info.get('sell_price')
+                        if sell_price is not None:
+                            trade.exit_price = float(sell_price)
                         
                         trade.save(update_fields=['status', 'pnl', 'exit_price'])
                         updated_count += 1
@@ -664,10 +669,10 @@ class Command(BaseCommand):
                         status_emoji = "✅" if new_status == 'won' else "❌"
                         self.stdout.write(
                             self.style.SUCCESS(
-                                f'  {status_emoji} {trade.symbol} {trade.action.upper()}: {new_status.upper()} - P&L: ${contract_info.get("profit", 0):.2f}'
+                                f'  {status_emoji} {trade.symbol} {trade.action.upper()}: {new_status.upper()} - P&L: ${profit:.2f}'
                             )
                         )
-                        logger.info(f"Trade {trade.id} ({trade.symbol}) actualizado: {new_status}, P&L: ${contract_info.get('profit', 0):.2f}")
+                        logger.info(f"Trade {trade.id} ({trade.symbol}) actualizado: {new_status}, P&L: ${profit:.2f}")
                     else:
                         # Contrato aún activo - verificar si debería haber expirado
                         elapsed_minutes = elapsed / 60
