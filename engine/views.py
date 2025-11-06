@@ -32,12 +32,36 @@ def get_trades(request):
     try:
         from datetime import timedelta
         from django.utils import timezone
+        from django.db import DatabaseError
         
         # Historial persistente desde la BD (no limitar a 30 minutos)
         # Mostrar las últimas 200 operaciones, incluyendo finalizadas antiguas
         # Incluir TODOS los trades sin filtrar por estado
         # Usar list() para evaluar el QuerySet y obtener todos los resultados
-        trades = list(OrderAudit.objects.all().order_by('-timestamp')[:200])
+        try:
+            trades = list(OrderAudit.objects.all().order_by('-timestamp')[:200])
+        except DatabaseError as db_error:
+            # Si la BD está corrupta, retornar respuesta vacía en lugar de caer
+            import logging
+            logger = logging.getLogger('trading_loop')
+            logger.error(f"❌ Error de base de datos al obtener trades: {db_error}")
+            return JsonResponse({
+                'success': False,
+                'error': 'Error de base de datos. Por favor, ejecuta el script de reparación.',
+                'active': [],
+                'completed': [],
+                'metrics': {
+                    'total_pnl': 0,
+                    'win_rate': 0,
+                    'win_rate_pct': 0,
+                    'drawdown_pct': 0,
+                    'losing_streak': 0,
+                    'total_trades': 0,
+                    'active_trades': 0,
+                    'pause_active': False,
+                    'pause_allowed_symbol': None
+                }
+            }, status=500)
         
         # Debug: mostrar cantidad de trades encontrados
         print(f"📊 Total trades encontrados: {len(trades)}")
@@ -159,7 +183,13 @@ def get_trades(request):
         
         # MÉTRICAS: Operaciones en las últimas 24 horas
         since_metrics = timezone.now() - timedelta(hours=24)
-        recent_trades = OrderAudit.objects.filter(timestamp__gte=since_metrics)
+        try:
+            recent_trades = OrderAudit.objects.filter(timestamp__gte=since_metrics)
+        except DatabaseError as db_error:
+            import logging
+            logger = logging.getLogger('trading_loop')
+            logger.error(f"❌ Error de base de datos al obtener recent_trades: {db_error}")
+            recent_trades = []
         
         total_trades = recent_trades.count()
         won_trades = recent_trades.filter(status='won').count()
@@ -174,10 +204,16 @@ def get_trades(request):
         
         # Calcular winrate de últimos 20 trades (más preciso para control de pérdidas)
         try:
-            recent_20_trades = list(OrderAudit.objects.filter(
-                accepted=True,
-                status__in=['won', 'lost']
-            ).order_by('-timestamp')[:20])
+            try:
+                recent_20_trades = list(OrderAudit.objects.filter(
+                    accepted=True,
+                    status__in=['won', 'lost']
+                ).order_by('-timestamp')[:20])
+            except DatabaseError as db_error:
+                import logging
+                logger = logging.getLogger('trading_loop')
+                logger.error(f"❌ Error de base de datos al obtener recent_20_trades: {db_error}")
+                recent_20_trades = []
             
             recent_20_total = len(recent_20_trades)
             recent_20_won = sum(1 for t in recent_20_trades if t.status == 'won')
