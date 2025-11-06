@@ -1285,15 +1285,21 @@ class TickTradingLoop:
                     'strategy': 'tick_based'
                 })
             elif hasattr(signal, 'confidence'):
-                # StatisticalSignal (estrategia 1)
-                request_payload.update({
+                # StatisticalSignal (estrategia 1) - pero verificar que tenga z_score
+                payload_update = {
                     'confidence': signal.confidence,
-                    'signal_type': signal.signal_type,
-                    'z_score': signal.z_score,
-                    'mean_price': signal.mean_price,
-                    'current_position': signal.current_position,
                     'strategy': 'statistical_hybrid'
-                })
+                }
+                # Solo agregar z_score si existe (no todos los signals lo tienen)
+                if hasattr(signal, 'z_score') and signal.z_score is not None:
+                    payload_update['z_score'] = signal.z_score
+                if hasattr(signal, 'signal_type'):
+                    payload_update['signal_type'] = signal.signal_type
+                if hasattr(signal, 'mean_price'):
+                    payload_update['mean_price'] = signal.mean_price
+                if hasattr(signal, 'current_position'):
+                    payload_update['current_position'] = signal.current_position
+                request_payload.update(payload_update)
             
             # Adjuntar estrategia si viene marcada por el caller
             try:
@@ -1499,16 +1505,18 @@ class TickTradingLoop:
             # Si el trade fue aceptado en Deriv pero falló al guardar, intentar recuperación
             if result.get('accepted') and result.get('order_id'):
                 try:
-                    # Asegurar que OrderAudit está importado
+                    # Asegurar que todas las importaciones están disponibles
                     from monitoring.models import OrderAudit as OrderAuditModel
                     from django.db import transaction
+                    from decimal import Decimal as DecimalType  # Importar explícitamente
+                    
                     with transaction.atomic():
                         fallback_order = OrderAuditModel.objects.create(
                             timestamp=timezone.now(),
                             symbol=symbol,
                             action=signal.direction.lower() if hasattr(signal, 'direction') else 'unknown',
-                            size=Decimal('0.01'),  # Monto mínimo como fallback
-                            price=signal.entry_price if hasattr(signal, 'entry_price') else Decimal('0'),
+                            size=DecimalType('0.01'),  # Monto mínimo como fallback
+                            price=DecimalType(str(signal.entry_price)) if hasattr(signal, 'entry_price') and signal.entry_price is not None else DecimalType('0'),
                             status='pending',
                             request_payload={'error': 'fallback_save', 'original_error': str(e)},
                             response_payload={'order_id': result.get('order_id'), 'accepted': True},
@@ -1521,6 +1529,8 @@ class TickTradingLoop:
                 except Exception as recovery_error:
                     logger.critical(f"❌❌ FALLO CRÍTICO: No se pudo recuperar trade {symbol} (Contract ID: {result.get('order_id')}): {recovery_error}")
                     print(f"❌❌ FALLO CRÍTICO: No se pudo recuperar trade {symbol}")
+                    import traceback
+                    logger.critical(f"Traceback recuperación: {traceback.format_exc()}")
                     # El trade existe en Deriv pero no en BD - esto requiere atención manual
 
 
