@@ -113,11 +113,30 @@ class DerivClient:
         self._heartbeat_thread: Optional[threading.Thread] = None
         self._heartbeat_running = False
         self._last_attempted_token_loginid = False  # Rastrear si Deriv rechazó token:loginid
+        # Métricas de reconexión
+        self.reconnect_attempts = 0
+        self._reconnect_history: list[float] = []
     
     def clear_cache(self):
         """Limpiar cache de balance"""
         self._balance_cache_value = None
         self._balance_cache_time = 0.0
+    
+    def _record_reconnect(self, reason: str) -> None:
+        ts = time.time()
+        self.reconnect_attempts += 1
+        self._reconnect_history.append(ts)
+        # Mantener historial de la última hora
+        self._reconnect_history = [t for t in self._reconnect_history if ts - t <= 3600]
+        print(f"🔁 Intento de reconexión #{self.reconnect_attempts}: {reason}")
+
+    def get_reconnect_stats(self) -> Dict[str, int]:
+        now = time.time()
+        recent_10m = [t for t in self._reconnect_history if now - t <= 600]
+        return {
+            'total': self.reconnect_attempts,
+            'last_10m': len(recent_10m)
+        }
 
     def _ratelimit(self):
         now = time.time()
@@ -297,6 +316,7 @@ class DerivClient:
         
         try:
             if not self._connect_websocket():
+                self._record_reconnect('fallo_conexion_inicial')
                 print("❌ Failed to connect WebSocket")
                 return False
             
@@ -331,6 +351,7 @@ class DerivClient:
                         
                         # Reintentar autenticación con solo token (modificar on_open para usar solo token)
                         # Necesitamos crear una nueva conexión que envíe solo el token
+                        self._record_reconnect('token_loginid_rejected')
                         if not self._connect_websocket_with_token_only():
                             print("❌ Failed to reconnect WebSocket")
                             return False

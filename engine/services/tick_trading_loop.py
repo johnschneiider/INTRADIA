@@ -81,7 +81,66 @@ class TickTradingLoop:
         self.recovery_mode: bool = False
         # Pacing: última ejecución aceptada
         self._last_executed_time = None
-    
+
+        # Relajación dinámica cuando el loop queda inactivo
+        self.relaxation_level: int = 0
+        self.relaxation_reason: Optional[str] = None
+        self.relaxation_last_change = None
+        self._relaxation_log_symbols: set[str] = set()
+
+    def set_relaxation_level(self, level: int, reason: Optional[str] = None) -> None:
+        """Ajustar el nivel de relajación dinámica del loop."""
+        level = max(0, min(level, 3))
+        if level == self.relaxation_level and reason == self.relaxation_reason:
+            return
+
+        previous_level = self.relaxation_level
+        self.relaxation_level = level
+        self.relaxation_reason = reason
+        self.relaxation_last_change = timezone.now()
+        self._relaxation_log_symbols = set()
+
+        if level > 0:
+            reason_txt = f" ({reason})" if reason else ""
+            print(f"🟠 Relajación activada nivel {level}{reason_txt}")
+        elif previous_level > 0:
+            print("🟢 Relajación desactivada. Restableciendo filtros normales.")
+
+    def _estimate_symbol_score_from_ticks(self, symbol: str) -> float:
+        """Calcular un score heurístico basado en ticks recientes cuando no hay trades."""
+        try:
+            recent_ticks = list(
+                Tick.objects.filter(symbol=symbol).order_by('-timestamp')[:80]
+            )
+            if len(recent_ticks) < 20:
+                return 0.5
+
+            prices = [float(t.price) for t in reversed(recent_ticks)]
+            if len(prices) < 2:
+                return 0.5
+
+            momentum = (prices[-1] - prices[0]) / prices[0]
+            momentum_score = max(-0.25, min(0.25, momentum * 10))
+
+            # Consistencia: cuántas veces la dirección del tick coincide con la tendencia general
+            direction_hits = 0
+            for i in range(1, len(prices)):
+                delta = prices[i] - prices[i - 1]
+                if delta == 0:
+                    continue
+                if momentum >= 0 and delta > 0:
+                    direction_hits += 1
+                elif momentum < 0 and delta < 0:
+                    direction_hits += 1
+
+            consistency = direction_hits / (len(prices) - 1)
+            consistency_score = (consistency - 0.5) * 0.4
+
+            raw_score = 0.5 + momentum_score + consistency_score
+            return max(0.3, min(0.7, raw_score))
+        except Exception:
+            return 0.5
+
     def _initialize_capital_systems(self):
         """Inicializar sistemas de capital y riesgo desde configuración"""
         try:
@@ -263,6 +322,32 @@ class TickTradingLoop:
             
             # 0. SISTEMA ADAPTATIVO: Obtener parámetros ajustados según métricas
             adaptive_params = self.adaptive_filter_manager.get_adjusted_parameters(current_balance)
+
+            # Aplicar relajación global si el loop lleva tiempo sin operar
+            relax_lvl = getattr(self, 'relaxation_level', 0)
+            if relax_lvl > 0:
+                # Ajustar umbrales para permitir exploraciones controladas
+                relax_factor = min(relax_lvl, 3)
+                adaptive_params.z_score_threshold = max(
+                    1.0, adaptive_params.z_score_threshold - (0.35 * relax_factor)
+                )
+                adaptive_params.momentum_threshold = max(
+                    0.005, adaptive_params.momentum_threshold - (0.012 * relax_factor)
+                )
+                adaptive_params.confidence_minimum = max(
+                    0.35, adaptive_params.confidence_minimum - (0.08 * relax_factor)
+                )
+                adaptive_params.position_size_multiplier = max(
+                    0.3, adaptive_params.position_size_multiplier * (0.75 - 0.1 * (relax_factor - 1))
+                )
+                if symbol not in self._relaxation_log_symbols:
+                    reason_txt = f" ({self.relaxation_reason})" if self.relaxation_reason else ""
+                    print(
+                        f"🟠 Modo relajado nivel {relax_lvl}{reason_txt}: "
+                        f"Z={adaptive_params.z_score_threshold:.2f}, Momentum={adaptive_params.momentum_threshold:.3f}, "
+                        f"Conf≥{adaptive_params.confidence_minimum:.2f}"
+                    )
+                    self._relaxation_log_symbols.add(symbol)
             
             # Actualizar umbrales de la estrategia con parámetros adaptativos
             if isinstance(self.strategy, StatisticalStrategy):
@@ -277,6 +362,20 @@ class TickTradingLoop:
             # Actualizar symbol_priorities con los scores calculados
             for symbol, perf in symbol_performance.items():
                 self.symbol_priorities[symbol] = perf['score']
+
+            # Fallback: si el símbolo actual no tiene datos (o son muy pocos), estimar por ticks
+            symbol_perf_entry = symbol_performance.get(symbol)
+            if not symbol_perf_entry or symbol_perf_entry.get('trades_count', 0) < 3:
+                tick_score = self._estimate_symbol_score_from_ticks(symbol)
+                symbol_performance[symbol] = {
+                    'win_rate': symbol_perf_entry.get('win_rate', 0.5) if symbol_perf_entry else 0.5,
+                    'total_pnl': symbol_perf_entry.get('total_pnl', 0.0) if symbol_perf_entry else 0.0,
+                    'avg_pnl': symbol_perf_entry.get('avg_pnl', 0.0) if symbol_perf_entry else 0.0,
+                    'trades_count': symbol_perf_entry.get('trades_count', 0) if symbol_perf_entry else 0,
+                    'score': tick_score,
+                    'source': 'ticks'
+                }
+                self.symbol_priorities[symbol] = tick_score
             
             # NUEVA LÓGICA: Si winrate de últimos 20 trades < 52%, usar solo top 5 símbolos
             allowed_symbols = None  # None = todos los símbolos permitidos
@@ -533,6 +632,9 @@ class TickTradingLoop:
                 else:
                     min_confidence = 0.50
                 
+                if relax_lvl > 0:
+                    min_confidence = max(0.35, min_confidence - 0.05 * relax_lvl)
+
                 if signal.confidence >= min_confidence:
                     should_enter = True
             
@@ -558,7 +660,7 @@ class TickTradingLoop:
             
             # Endurecimiento ligero en modo conservador o recuperación: exigir confianza algo mayor
             try:
-                if (conservative_mode or getattr(self, 'recovery_mode', False)) and hasattr(signal, 'confidence') and signal.confidence is not None:
+                if (conservative_mode or getattr(self, 'recovery_mode', False) or relax_lvl > 0) and hasattr(signal, 'confidence') and signal.confidence is not None:
                     # Base normal 0.62; en recuperación 0.58
                     if getattr(self, 'recovery_mode', False):
                         min_conf = 0.58
@@ -570,6 +672,9 @@ class TickTradingLoop:
                             min_conf = max(0.54, min_conf - 0.04)
                     except Exception:
                         pass
+                    if relax_lvl > 0:
+                        min_conf = max(0.38, min_conf - 0.07 * relax_lvl)
+
                     if float(signal.confidence) < min_conf:
                         print(f"  ⚠️ {symbol}: Filtro conservador activo (conf: {signal.confidence:.2f} < {min_conf:.2f})")
                         return {
@@ -588,6 +693,12 @@ class TickTradingLoop:
                         low, high = (0.00015, 0.0220)
                     else:
                         low, high = (0.0015, 0.0550)
+
+                    if relax_lvl > 0:
+                        # Ampliar ligeramente los límites en modo relajado
+                        stretch = 1 + (0.25 * relax_lvl)
+                        low *= max(0.2, 1 - 0.3 * relax_lvl)
+                        high *= stretch
                     # En recuperación ya no estrechamos más; usamos rangos ampliados
                     if not (low <= float(atr_ratio_chk) <= high):
                         # Si la confianza es muy alta, permitir pero reducimos stake posteriormente

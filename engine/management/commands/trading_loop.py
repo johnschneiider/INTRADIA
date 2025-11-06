@@ -127,6 +127,7 @@ class Command(BaseCommand):
         
         try:
             recovery_mode = False
+            idle_cycles = 0
             while True:
                 # Recargar configuración desde BD en cada iteración (para aplicar cambios dinámicos)
                 try:
@@ -190,6 +191,19 @@ class Command(BaseCommand):
                     timestamp__gte=since
                 ).values_list('symbol', flat=True).distinct()
                 
+                latest_tick = Tick.objects.order_by('-timestamp').first()
+                if latest_tick:
+                    tick_delay = (timezone.now() - latest_tick.timestamp).total_seconds()
+                    if tick_delay > 45:
+                        self.stdout.write(
+                            self.style.WARNING(
+                                f"⚠️ Último tick recibido hace {tick_delay:.1f}s. Pausando para esperar datos frescos."
+                            )
+                        )
+                        loop.set_relaxation_level(0, 'esperando_ticks')
+                        time.sleep(5)
+                        continue
+
                 # Si no hay símbolos en BD, usar active_symbols.json como fallback
                 if not symbols:
                     import os
@@ -509,6 +523,36 @@ class Command(BaseCommand):
                     self.style.SUCCESS(f'📊 Resumen: {executed_count} ejecutados, {rejected_count} rechazados, {skipped_count} omitidos')
                 )
                 self.stdout.write('')
+
+                # Ajustar nivel de relajación del loop según actividad
+                if executed_count > 0:
+                    idle_cycles = 0
+                    loop.set_relaxation_level(0)
+                else:
+                    idle_cycles += 1
+                    # Cada 3 ciclos sin trades (≈30s) aumentar el nivel hasta 3
+                    if idle_cycles >= 3:
+                        level = min(3, idle_cycles // 3)
+                        minutes_idle = (idle_cycles * 10) / 60.0
+                        reason = f"{idle_cycles} ciclos sin trades (~{minutes_idle:.1f} min)"
+                        loop.set_relaxation_level(level, reason)
+                        if idle_cycles in (6, 12, 18):
+                            self.stdout.write(self.style.WARNING(f'⚠️ {idle_cycles} ciclos consecutivos sin operaciones. Activando relajación nivel {level}.'))
+                    else:
+                        loop.set_relaxation_level(0)
+
+                # Revisar frecuencia de reconexiones a Deriv
+                try:
+                    if getattr(loop, '_client', None):
+                        reconnect_stats = loop._client.get_reconnect_stats()
+                        if reconnect_stats.get('last_10m', 0) >= 5:
+                            self.stdout.write(
+                                self.style.WARNING(
+                                    f"⚠️ Alta frecuencia de reconexiones a Deriv: {reconnect_stats['last_10m']} en los últimos 10 minutos"
+                                )
+                            )
+                except Exception:
+                    pass
                 
                 # Verificar operaciones pendientes (cada 2 segundos)
                 self._check_pending_trades(client)
