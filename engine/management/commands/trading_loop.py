@@ -503,13 +503,12 @@ class Command(BaseCommand):
                         # Continuar con siguiente símbolo - no detener el loop
                         continue
                 
-                # Mostrar resumen solo si hay actividad
-                if executed_count > 0 or rejected_count > 0:
-                    self.stdout.write('')
-                    self.stdout.write(
-                        self.style.SUCCESS(f'📊 Resumen: {executed_count} ejecutados, {rejected_count} rechazados, {skipped_count} omitidos')
-                    )
-                    self.stdout.write('')
+                # Siempre mostrar resumen para diagnóstico
+                self.stdout.write('')
+                self.stdout.write(
+                    self.style.SUCCESS(f'📊 Resumen: {executed_count} ejecutados, {rejected_count} rechazados, {skipped_count} omitidos')
+                )
+                self.stdout.write('')
                 
                 # Verificar operaciones pendientes (cada 2 segundos)
                 self._check_pending_trades(client)
