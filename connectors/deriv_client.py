@@ -1076,9 +1076,10 @@ class DerivClient:
                 
                 contract_info = data.get('proposal_open_contract', {})
                 
-                # Solo determinar status si el contrato ya expiró/se vendió
-                is_sold = contract_info.get('is_sold', False)
-                profit = contract_info.get('profit', 0)
+                # Deriv puede devolver is_sold como 1/0 (int) o True/False (bool)
+                is_sold_raw = contract_info.get('is_sold', False)
+                is_sold = bool(is_sold_raw) if is_sold_raw is not None else False
+                profit = float(contract_info.get('profit', 0) or 0)
                 
                 # Si el contrato ya se vendió/cerró, determinar status
                 if is_sold:
@@ -1091,8 +1092,8 @@ class DerivClient:
                     'is_sold': is_sold,
                     'status': status,
                     'profit': profit,
-                    'buy_price': contract_info.get('buy_price', 0),
-                    'sell_price': contract_info.get('sell_price', 0)
+                    'buy_price': float(contract_info.get('buy_price', 0) or 0),
+                    'sell_price': float(contract_info.get('sell_price', 0) or 0)
                 }
             else:
                 return {'error': 'timeout'}

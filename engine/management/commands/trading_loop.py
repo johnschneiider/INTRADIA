@@ -688,7 +688,11 @@ class Command(BaseCommand):
                     )
                     
         except Exception as e:
-            pass  # Error silencioso
+            import logging
+            logger = logging.getLogger('trading_loop')
+            logger.error(f"Error en _check_pending_trades: {e}", exc_info=True)
+            # NO silenciar errores - mostrar para debugging
+            self.stdout.write(self.style.ERROR(f'  ❌ Error verificando trades pendientes: {e}'))
     
     def _check_orphaned_trades(self, client):
         """
