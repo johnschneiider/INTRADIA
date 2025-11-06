@@ -566,12 +566,20 @@ class Command(BaseCommand):
     def _check_pending_trades(self, client):
         """Verificar operaciones abiertas y actualizar su estado aunque se haya perdido la suscripción."""
         try:
+            import json
+            import logging
+            logger = logging.getLogger('trading_loop')
+            
             # Operaciones pendientes de la última hora
             since = timezone.now() - timedelta(hours=1)
             pending_trades = OrderAudit.objects.filter(
                 status__in=['pending', 'active', 'open'],
                 timestamp__gte=since
             )
+            
+            checked_count = 0
+            updated_count = 0
+            error_count = 0
             
             for trade in pending_trades:
                 # Tiempo transcurrido desde la apertura
@@ -582,25 +590,62 @@ class Command(BaseCommand):
                 if elapsed < max(30, expected_duration):
                     continue
                 
-                # Obtener contract_id
+                checked_count += 1
+                
+                # Obtener contract_id de múltiples formas posibles
                 contract_id = None
-                if trade.response_payload and isinstance(trade.response_payload, dict):
-                    contract_id = trade.response_payload.get('order_id')
+                
+                # Método 1: response_payload como dict
+                if trade.response_payload:
+                    if isinstance(trade.response_payload, dict):
+                        contract_id = trade.response_payload.get('order_id') or trade.response_payload.get('contract_id')
+                    elif isinstance(trade.response_payload, str):
+                        try:
+                            payload_dict = json.loads(trade.response_payload)
+                            contract_id = payload_dict.get('order_id') or payload_dict.get('contract_id')
+                        except json.JSONDecodeError:
+                            logger.warning(f"Trade {trade.id}: response_payload no es JSON válido: {trade.response_payload[:100]}")
+                            pass
+                
+                # Método 2: request_payload
+                if not contract_id and trade.request_payload:
+                    if isinstance(trade.request_payload, dict):
+                        contract_id = trade.request_payload.get('order_id') or trade.request_payload.get('contract_id')
+                    elif isinstance(trade.request_payload, str):
+                        try:
+                            payload_dict = json.loads(trade.request_payload)
+                            contract_id = payload_dict.get('order_id') or payload_dict.get('contract_id')
+                        except json.JSONDecodeError:
+                            pass
                 
                 if not contract_id:
+                    logger.warning(f"Trade {trade.id} ({trade.symbol}): No se encontró contract_id")
+                    error_count += 1
                     continue
                 
                 # Consultar estado (reintentos breves para cubrir reconexiones)
                 try:
                     attempts = 3
                     contract_info = None
-                    for _ in range(attempts):
-                        contract_info = client.get_open_contract_info(contract_id)
-                        if contract_info and not contract_info.get('error'):
-                            break
-                        time.sleep(1.0)
+                    last_error = None
                     
-                    if contract_info.get('error'):
+                    for attempt in range(attempts):
+                        try:
+                            contract_info = client.get_open_contract_info(contract_id)
+                            if contract_info and not contract_info.get('error'):
+                                break
+                            last_error = contract_info.get('error') if contract_info else 'No response'
+                            if attempt < attempts - 1:
+                                time.sleep(1.0)
+                        except Exception as e:
+                            last_error = str(e)
+                            logger.warning(f"Trade {trade.id} ({trade.symbol}): Error en intento {attempt + 1}: {e}")
+                            if attempt < attempts - 1:
+                                time.sleep(1.0)
+                    
+                    if not contract_info or contract_info.get('error'):
+                        logger.warning(f"Trade {trade.id} ({trade.symbol}): No se pudo obtener info del contrato {contract_id}: {last_error}")
+                        error_count += 1
                         continue
                     
                     # Si is_sold=True, el contrato se cerró en Deriv
@@ -608,12 +653,13 @@ class Command(BaseCommand):
                         new_status = 'won' if contract_info.get('profit', 0) > 0 else 'lost'
                         trade.status = new_status
                         
-                        if contract_info.get('profit'):
+                        if contract_info.get('profit') is not None:
                             trade.pnl = float(contract_info['profit'])
                         if contract_info.get('sell_price'):
                             trade.exit_price = float(contract_info['sell_price'])
                         
                         trade.save(update_fields=['status', 'pnl', 'exit_price'])
+                        updated_count += 1
                         
                         status_emoji = "✅" if new_status == 'won' else "❌"
                         self.stdout.write(
@@ -621,8 +667,25 @@ class Command(BaseCommand):
                                 f'  {status_emoji} {trade.symbol} {trade.action.upper()}: {new_status.upper()} - P&L: ${contract_info.get("profit", 0):.2f}'
                             )
                         )
-                except Exception:
-                    pass  # Ignorar errores puntuales
+                        logger.info(f"Trade {trade.id} ({trade.symbol}) actualizado: {new_status}, P&L: ${contract_info.get('profit', 0):.2f}")
+                    else:
+                        # Contrato aún activo - verificar si debería haber expirado
+                        elapsed_minutes = elapsed / 60
+                        if elapsed_minutes > 2:  # Más de 2 minutos
+                            logger.warning(f"Trade {trade.id} ({trade.symbol}): Aún activo después de {elapsed_minutes:.1f} minutos")
+                except Exception as e:
+                    logger.error(f"Trade {trade.id} ({trade.symbol}): Excepción al verificar: {e}", exc_info=True)
+                    error_count += 1
+            
+            # Log resumen
+            if checked_count > 0:
+                logger.info(f"Verificación de trades: {checked_count} verificados, {updated_count} actualizados, {error_count} errores")
+                if checked_count > 0:
+                    self.stdout.write(
+                        self.style.SUCCESS(
+                            f'  📊 Verificación: {checked_count} verificados, {updated_count} actualizados, {error_count} errores'
+                        )
+                    )
                     
         except Exception as e:
             pass  # Error silencioso

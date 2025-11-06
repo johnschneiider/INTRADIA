@@ -249,6 +249,43 @@ def get_trades(request):
         }, status=500)
 
 
+@login_required
+@csrf_exempt
+def diagnose_stuck_trades_api(request):
+    """Diagnosticar trades que se quedan pegados"""
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'error': 'Método no permitido'}, status=405)
+    
+    try:
+        from django.core.management import call_command
+        from io import StringIO
+        import sys
+        
+        # Capturar output del comando
+        old_stdout = sys.stdout
+        sys.stdout = output = StringIO()
+        
+        try:
+            # Ejecutar diagnóstico
+            call_command('diagnose_stuck_trades', '--all', verbosity=2)
+            output_str = output.getvalue()
+        finally:
+            sys.stdout = old_stdout
+        
+        return JsonResponse({
+            'success': True,
+            'output': output_str,
+            'message': 'Diagnóstico completado'
+        })
+    except Exception as e:
+        import traceback
+        return JsonResponse({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        }, status=500)
+
+
 @api_view(['GET'])
 def get_balance(request):
     """Obtener balance de Deriv con manejo de rate limiting"""
