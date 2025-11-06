@@ -259,7 +259,12 @@ class Command(BaseCommand):
                     pass
 
                 self.stdout.write('=' * 60)
-                self.stdout.write(f'📊 Símbolos: {symbols_list}')
+                self.stdout.write(f'📊 Símbolos encontrados: {len(symbols_list)}')
+                if symbols_list:
+                    self.stdout.write(f'   Lista: {symbols_list[:10]}...' if len(symbols_list) > 10 else f'   Lista: {symbols_list}')
+                else:
+                    self.stdout.write(self.style.WARNING('   ⚠️ NO HAY SÍMBOLOS PARA PROCESAR'))
+                    self.stdout.write(self.style.WARNING('   Verifica que save_ticks esté corriendo o que active_symbols.json exista'))
                 self.stdout.write('')
                 
                 # Monitorear posiciones activas ANTES de procesar nuevos trades
@@ -397,14 +402,23 @@ class Command(BaseCommand):
                 skipped_count = 0
                 rejected_count = 0
                 
+                if not symbols_list:
+                    self.stdout.write(self.style.WARNING('⚠️ No hay símbolos para procesar. Esperando ticks...'))
+                else:
+                    self.stdout.write(self.style.SUCCESS(f'🔄 Procesando {len(symbols_list)} símbolos...'))
+                
                 for symbol in symbols_list:
                     try:
+                        self.stdout.write(f'   🔍 Analizando {symbol}...', ending='')
                         result = loop.process_symbol(symbol)
                         
                         if not result:
+                            self.stdout.write(' ⏭️ Sin resultado')
+                            skipped_count += 1
                             continue
                         
                         status = result.get('status')
+                        self.stdout.write(f' → {status}')
                         
                         if status == 'executed':
                             executed_count += 1
