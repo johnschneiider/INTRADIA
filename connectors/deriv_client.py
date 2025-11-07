@@ -152,7 +152,7 @@ class DerivClient:
                 try:
                     data = json.loads(message)
                     # Siempre guardar respuestas importantes (authorize, buy, proposal, balance, proposal_open_contract, etc.)
-                    if any(key in data for key in ['authorize', 'buy', 'proposal', 'balance', 'proposal_open_contract', 'error']):
+                    if any(key in data for key in ['authorize', 'buy', 'proposal', 'balance', 'proposal_open_contract', 'contracts_for', 'ticks_history', 'history', 'error']):
                         self.response_data = data
                         self.response_event.set()
                         # Debug: mostrar qué se recibió
@@ -224,7 +224,7 @@ class DerivClient:
                     
                     # Siempre guardar respuestas importantes (authorize, buy, proposal, balance, etc.)
                     # Estas respuestas deben activar el evento para que el código que espera pueda continuar
-                    if any(key in data for key in ['authorize', 'buy', 'proposal', 'balance', 'error']):
+                    if any(key in data for key in ['authorize', 'buy', 'proposal', 'balance', 'proposal_open_contract', 'contracts_for', 'ticks_history', 'history', 'error']):
                         self.response_data = data
                         self.response_event.set()
                     elif not self.response_data:
@@ -686,7 +686,8 @@ class DerivClient:
             
             # Esperar respuesta
             if self.response_event.wait(timeout=30):
-                data = self.response_data
+                data = dict(self.response_data) if isinstance(self.response_data, dict) else self.response_data
+                self.response_data = {}
                 if data.get('error'):
                     print(f"Error WebSocket: {data['error']}")
                     return []
@@ -1050,7 +1051,8 @@ class DerivClient:
             
             # Esperar respuesta
             if self.response_event.wait(timeout=10):
-                data = self.response_data
+                data = dict(self.response_data) if isinstance(self.response_data, dict) else self.response_data
+                self.response_data = {}
                 
                 if data.get('error'):
                     return {'error': data['error']}
@@ -1090,7 +1092,8 @@ class DerivClient:
             self.ws.send(json.dumps(contract_msg))
             
             if self.response_event.wait(timeout=10):
-                data = self.response_data
+                data = dict(self.response_data) if isinstance(self.response_data, dict) else self.response_data
+                self.response_data = {}
                 
                 if data.get('error'):
                     return {'error': data['error']}
