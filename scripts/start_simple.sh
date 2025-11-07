@@ -47,3 +47,5 @@ echo "💡 Nota: Celery ahora usa base de datos en lugar de Redis"
 
 
 
+
+

@@ -17,6 +17,13 @@ PYTHON_BIN="python3"
 GUNICORN_PORT=8002       # No interferir con predicta.com.co (8001) y appo.com.co
 DAPHNE_PORT=8003         # WebSocket (no interferir con otros proyectos)
 
+# Configuración PostgreSQL (se puede sobreescribir al invocar el script)
+POSTGRES_DB="${POSTGRES_DB:-intradia}"
+POSTGRES_USER="${POSTGRES_USER:-intradia}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
+POSTGRES_HOST="${POSTGRES_HOST:-127.0.0.1}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+
 VENV_DIR="$PROJECT_DIR/venv"
 NGINX_SITE="/etc/nginx/sites-available/${PROJECT_NAME}"
 NGINX_SITE_LINK="/etc/nginx/sites-enabled/${PROJECT_NAME}"
@@ -32,6 +39,30 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 command -v $PYTHON_BIN >/dev/null 2>&1 || { echo "❌ No se encontró $PYTHON_BIN"; exit 1; }
+command -v psql >/dev/null 2>&1 || { echo "❌ No se encontró psql (cliente de PostgreSQL)"; exit 1; }
+
+if [ -z "$POSTGRES_PASSWORD" ]; then
+  read -rsp "🔐 Ingresa la contraseña para el usuario PostgreSQL '$POSTGRES_USER': " POSTGRES_PASSWORD
+  echo
+fi
+echo "🗄️ Verificando base de datos PostgreSQL..."
+ROLE_EXISTS=$(sudo -u postgres psql -qtAc "SELECT 1 FROM pg_roles WHERE rolname='${POSTGRES_USER}'" || true)
+if [ -z "$ROLE_EXISTS" ]; then
+  echo "  ➕ Creando rol ${POSTGRES_USER}"
+  sudo -u postgres psql -c "CREATE ROLE ${POSTGRES_USER} LOGIN PASSWORD '${POSTGRES_PASSWORD}';"
+else
+  echo "  ✅ Rol ${POSTGRES_USER} ya existe"
+  sudo -u postgres psql -c "ALTER ROLE ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" >/dev/null
+fi
+
+DB_EXISTS=$(sudo -u postgres psql -qtAc "SELECT 1 FROM pg_database WHERE datname='${POSTGRES_DB}'" || true)
+if [ -z "$DB_EXISTS" ]; then
+  echo "  ➕ Creando base ${POSTGRES_DB}"
+  sudo -u postgres psql -c "CREATE DATABASE ${POSTGRES_DB} OWNER ${POSTGRES_USER};"
+else
+  echo "  ✅ Base ${POSTGRES_DB} ya existe"
+fi
+
 
 mkdir -p "$PROJECT_DIR"
 cd "$PROJECT_DIR"
@@ -71,13 +102,30 @@ chown -R www-data:www-data /var/log/gunicorn /var/log/intradia "$PROJECT_DIR/sta
 # Variables de entorno y Django
 # =============================
 touch .env
-if ! grep -q "DJANGO_ALLOWED_HOSTS" .env 2>/dev/null; then
-  cat >> .env <<EOF
-DJANGO_DEBUG=0
-DJANGO_ALLOWED_HOSTS=${DOMAIN},${DOMAIN_WWW}
-DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},https://${DOMAIN_WWW}
-EOF
-fi
+
+update_env_var() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" .env 2>/dev/null; then
+    sed -i "s#^${key}=.*#${key}=${value}#" .env
+  else
+    echo "${key}=${value}" >> .env
+  fi
+}
+
+update_env_var "DJANGO_DEBUG" "0"
+update_env_var "DJANGO_ALLOWED_HOSTS" "${DOMAIN},${DOMAIN_WWW}"
+update_env_var "DJANGO_CSRF_TRUSTED_ORIGINS" "https://${DOMAIN},https://${DOMAIN_WWW}"
+update_env_var "POSTGRES_DB" "${POSTGRES_DB}"
+update_env_var "POSTGRES_USER" "${POSTGRES_USER}"
+update_env_var "POSTGRES_PASSWORD" "${POSTGRES_PASSWORD}"
+update_env_var "POSTGRES_HOST" "${POSTGRES_HOST}"
+update_env_var "POSTGRES_PORT" "${POSTGRES_PORT}"
+
+# Exportar variables al entorno actual
+set -a
+source .env
+set +a
 
 echo "🗄️ Migraciones y estáticos..."
 # Crear migraciones si hay cambios
@@ -147,7 +195,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=${PROJECT_DIR}
 Environment="PATH=${VENV_DIR}/bin"
-Environment="DJANGO_DEBUG=0"
+EnvironmentFile=${PROJECT_DIR}/.env
 ExecStart=${VENV_DIR}/bin/gunicorn \
   --config ${PROJECT_DIR}/gunicorn_config.py \
   config.wsgi:application
@@ -172,7 +220,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=${PROJECT_DIR}
 Environment="PATH=${VENV_DIR}/bin"
-Environment="DJANGO_DEBUG=0"
+EnvironmentFile=${PROJECT_DIR}/.env
 Environment="DJANGO_SETTINGS_MODULE=config.settings"
 ExecStart=${VENV_DIR}/bin/python -u ${PROJECT_DIR}/manage.py trading_loop
 Restart=always
@@ -196,7 +244,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=${PROJECT_DIR}
 Environment="PATH=${VENV_DIR}/bin"
-Environment="DJANGO_DEBUG=0"
+EnvironmentFile=${PROJECT_DIR}/.env
 ExecStart=${VENV_DIR}/bin/daphne -b 127.0.0.1 -p ${DAPHNE_PORT} config.asgi:application
 Restart=always
 RestartSec=10
@@ -245,7 +293,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=${PROJECT_DIR}
 Environment="PATH=${VENV_DIR}/bin"
-Environment="DJANGO_DEBUG=0"
+EnvironmentFile=${PROJECT_DIR}/.env
 Environment="DJANGO_SETTINGS_MODULE=config.settings"
 ExecStart=${VENV_DIR}/bin/python -u ${PROJECT_DIR}/manage.py save_realtime_tick
 Restart=always

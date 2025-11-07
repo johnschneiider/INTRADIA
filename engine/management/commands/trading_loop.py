@@ -720,26 +720,71 @@ class Command(BaseCommand):
                 
                 # Consultar estado (reintentos breves para cubrir reconexiones)
                 try:
-                    attempts = 3
+                    if not getattr(client, 'connected', False):
+                        try:
+                            logger.info("Cliente Deriv desconectado, intentando reautenticar antes de verificar contratos...")
+                            client.authenticate()
+                        except Exception as recon_error:
+                            logger.error(f"No se pudo reautenticar cliente Deriv antes del chequeo de contratos: {recon_error}")
+                            error_count += 1
+                            continue
+                    
+                    attempts = 4
                     contract_info = None
                     last_error = None
-                    
-                    for attempt in range(attempts):
+                    retry_wait = 1.0
+                    retryable_tokens = (
+                        'timeout', 'temporarily unavailable', '503', 'handshake status',
+                        'connection to remote host was lost', 'not connected', 'rate limit',
+                        'host was not found'
+                    )
+
+                    for attempt in range(1, attempts + 1):
                         try:
                             contract_info = client.get_open_contract_info(contract_id)
-                            if contract_info and not contract_info.get('error'):
-                                break
-                            last_error = contract_info.get('error') if contract_info else 'No response'
-                            if attempt < attempts - 1:
-                                time.sleep(1.0)
                         except Exception as e:
+                            contract_info = None
                             last_error = str(e)
-                            logger.warning(f"Trade {trade.id} ({trade.symbol}): Error en intento {attempt + 1}: {e}")
-                            if attempt < attempts - 1:
-                                time.sleep(1.0)
-                    
-                    if not contract_info or contract_info.get('error'):
-                        logger.warning(f"Trade {trade.id} ({trade.symbol}): No se pudo obtener info del contrato {contract_id}: {last_error}")
+                            logger.warning(
+                                f"Trade {trade.id} ({trade.symbol}): Error al consultar contrato"
+                                f" {contract_id} (intento {attempt}/{attempts}): {last_error}"
+                            )
+                        else:
+                            error_payload = contract_info.get('error') if isinstance(contract_info, dict) else None
+                            if not contract_info or error_payload:
+                                last_error = error_payload or 'Respuesta vacía'
+                            else:
+                                last_error = None
+                                break
+
+                        if attempt < attempts:
+                            lowered = str(last_error).lower() if last_error else ''
+                            if any(token in lowered for token in retryable_tokens):
+                                logger.warning(
+                                    f"Trade {trade.id} ({trade.symbol}): Error recuperable '{last_error}',"
+                                    f" reintentando en {retry_wait:.1f}s"
+                                )
+                                # Forzar re-autenticación si el cliente reporta desconexión
+                                if getattr(client, 'connected', False) is False or 'not connected' in lowered:
+                                    try:
+                                        logger.info("Reautenticando cliente Deriv tras error...")
+                                        client.authenticate()
+                                    except Exception as auth_error:
+                                        logger.error(f"Error reautenticando cliente Deriv: {auth_error}")
+                            else:
+                                logger.warning(
+                                    f"Trade {trade.id} ({trade.symbol}): Error no recuperable '{last_error}',"
+                                    f" intentando nuevamente en {retry_wait:.1f}s"
+                                )
+
+                            time.sleep(min(5.0, retry_wait))
+                            retry_wait *= 1.5
+
+                    if not contract_info or last_error:
+                        logger.warning(
+                            f"Trade {trade.id} ({trade.symbol}): No se pudo obtener info del contrato"
+                            f" {contract_id}: {last_error}"
+                        )
                         error_count += 1
                         continue
                     

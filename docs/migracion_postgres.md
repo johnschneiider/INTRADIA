@@ -3,7 +3,7 @@
 ### 1. Preparativos y dependencias
 
 1. Instala PostgreSQL (versión 13+ recomendada) en la VPS o en un servicio gestionado.
-2. Instala las client tools necesarias:
+2. Instala las client tools necesarias (opcional si usas el script automatizado más abajo):
    ```bash
    sudo apt update
    sudo apt install -y postgresql postgresql-contrib libpq-dev
@@ -19,7 +19,7 @@
 ```bash
 sudo -u postgres psql
 CREATE DATABASE intradia;
-CREATE USER intradia WITH PASSWORD 'cambia_esta_clave';
+CREATE USER intradia WITH PASSWORD 'intradia123';
 ALTER ROLE intradia SET client_encoding TO 'UTF8';
 ALTER ROLE intradia SET default_transaction_isolation TO 'read committed';
 ALTER ROLE intradia SET timezone TO 'UTC';
@@ -41,7 +41,7 @@ Environment="POSTGRES_HOST=127.0.0.1"
 Environment="POSTGRES_PORT=5432"
 Environment="POSTGRES_DB=intradia"
 Environment="POSTGRES_USER=intradia"
-Environment="POSTGRES_PASSWORD=********"
+Environment="POSTGRES_PASSWORD=intradia123"
 ```
 
 Recarga los demonios para que systemd lea los cambios pero aún **no** reinicies los servicios:
@@ -106,6 +106,31 @@ sudo systemctl status intradia-gunicorn
 2. Configura backups automáticos de PostgreSQL (ej.: `pg_dump` diario a S3).
 3. Opcional: habilita `pg_stat_statements`/`auto_vacuum` según la carga del sistema.
 
-> NOTA: las migraciones automáticas detectarán `POSTGRES_HOST`; si deseas mantener SQLite para desarrollo local, simplemente no definas esas variables en tu entorno local.
+> NOTA: si prefieres seguir usando SQLite en algún entorno, establece la variable `USE_SQLITE=1` antes de ejecutar `manage.py`.
+
+---
+
+### Modo automático en la VPS (recomendado)
+
+El repositorio incluye un script que ejecuta todos los pasos (respaldo, creación de base y usuario, migración y restauración). Para usarlo:
+
+```bash
+cd /var/www/intradia.com.co
+chmod +x scripts/migrate_sqlite_to_postgres.sh
+sudo ./scripts/migrate_sqlite_to_postgres.sh
+```
+
+El script detiene los servicios, crea un respaldo JSON en `backups/`, provisiona PostgreSQL con usuario `intradia`/`intradia123`, importa datos y reactiva los servicios.
+
+### Modo automático en tu entorno local (Windows PowerShell / WSL)
+
+Para preparar tu entorno de desarrollo local con PostgreSQL usando las mismas credenciales, ejecuta:
+
+```powershell
+cd E:\INTRADIA
+PowerShell -ExecutionPolicy Bypass -File .\scripts\setup_local_postgres.ps1
+```
+
+Esto crea la base `intradia`, el usuario `intradia` con clave `intradia123` y deja las variables de entorno listas para que `manage.py` use PostgreSQL de inmediato.
 
 

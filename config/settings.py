@@ -129,17 +129,21 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-if os.getenv('POSTGRES_HOST'):
+use_sqlite = os.getenv('USE_SQLITE', '').lower() in {'1', 'true', 'yes'}
+postgres_disabled = os.getenv('POSTGRES_DISABLED', '').lower() in {'1', 'true', 'yes'}
+
+if not use_sqlite and not postgres_disabled:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
             'NAME': os.getenv('POSTGRES_DB', 'intradia'),
             'USER': os.getenv('POSTGRES_USER', 'intradia'),
-            'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'intradia'),
-            'HOST': os.getenv('POSTGRES_HOST', 'db'),
+            'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'intradia123'),
+            'HOST': os.getenv('POSTGRES_HOST', '127.0.0.1'),
             'PORT': int(os.getenv('POSTGRES_PORT', '5432')),
             'OPTIONS': {
                 'client_encoding': 'UTF8',
+                'options': '-c timezone=UTC',
             },
         }
     }
@@ -154,7 +158,7 @@ else:
             },
         }
     }
-    
+
     # Configurar WAL mode para SQLite (permite lecturas concurrentes mientras se escribe)
     # Esto se hace después de la conexión inicial
     import sqlite3

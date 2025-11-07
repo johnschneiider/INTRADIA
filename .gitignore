@@ -57,6 +57,7 @@ comandos*.txt
 # Base de datos de desarrollo
 db.sqlite3
 *.db
+local_pg/
 
 # Celery
 celerybeat-schedule.*
